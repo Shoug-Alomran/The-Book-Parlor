@@ -55,6 +55,7 @@ export const bookService = {
     if (!supabase) return externalBookMetadataService.upsertBookFromExternalMetadata(book);
     const { data: userData, error: userError } = await supabase.auth.getUser();
     if (userError || !userData.user) throw new Error("auth_required");
+    await ensureProfileForUser(userData.user);
 
     const enriched = await externalBookMetadataService.upsertBookFromExternalMetadata(book);
 
@@ -84,6 +85,21 @@ export const bookService = {
     return enriched;
   },
 };
+
+async function ensureProfileForUser(user: { id: string; email?: string | null; user_metadata?: Record<string, any> }) {
+  if (!supabase) return;
+  const { data: profile } = await supabase.from("profiles").select("id").eq("id", user.id).maybeSingle();
+  if (profile) return;
+
+  const emailPrefix = user.email?.split("@")[0] ?? "reader";
+  const metadata = user.user_metadata ?? {};
+  const { error } = await supabase.from("profiles").upsert({
+    id: user.id,
+    username: metadata.username ?? emailPrefix,
+    display_name: metadata.display_name ?? metadata.username ?? emailPrefix,
+  });
+  if (error) throw new Error("profile_unavailable");
+}
 
 function dedupeBooks(books: Book[]) {
   const seen = new Set<string>();

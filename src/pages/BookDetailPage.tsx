@@ -37,9 +37,12 @@ export function BookDetailPage() {
       });
       showToast(action === "purchased" ? "Marked as purchased and added to your library." : "Added to your Want to Read shelf.", "success");
     } catch (error) {
-      const message = error instanceof Error && error.message === "auth_required"
+      const code = error instanceof Error ? error.message : "save_failed";
+      const message = code === "auth_required"
         ? "Sign in to add books to your reading room."
-        : "We could not update your shelf just now. Please try again.";
+        : code === "profile_unavailable"
+          ? "Your account is signed in, but your reader profile is not ready yet. Please refresh and try again."
+          : "We could not update your shelf just now. Please try again.";
       showToast(message, "error");
     } finally {
       setSavingAction(null);
@@ -58,7 +61,7 @@ export function BookDetailPage() {
       {toast && (
         <div className={`fixed right-5 top-5 z-50 rounded-2xl px-5 py-3 text-sm font-bold shadow-glow ${toast.tone === "success" ? "bg-espresso text-cream dark:bg-gold dark:text-espresso" : "bg-rose text-espresso"}`}>
           {toast.text}
-          {toast.tone === "error" && <button type="button" onClick={() => navigate("/auth")} className="ml-3 underline">Sign in</button>}
+          {toast.tone === "error" && toast.text.startsWith("Sign in") && <button type="button" onClick={() => navigate("/auth")} className="ml-3 underline">Sign in</button>}
         </div>
       )}
       <PageHeader eyebrow="Book detail" title={book.title} description={book.authors.join(", ")} action={<Link to={`/books/${book.id}/rate`} className="btn-primary"><Star size={18} />Rate this book</Link>} />
