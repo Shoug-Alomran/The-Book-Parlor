@@ -1,236 +1,102 @@
 # The Book Parlor
 
-A cozy digital reading space inspired by Goodreads, TBR Bookshelf, and the atmosphere of a warm late-night book café.
+The Book Parlor is a cozy full-stack reading tracker inspired by Goodreads and TBR Bookshelf, designed like a sleek late-night book cafe. It supports personal libraries, separate reading and ownership statuses, visual bookcases, genre-specific emotional ratings, reviews/comments, trope suggestions, reading goals, and Supabase-backed data architecture.
 
-The Book Parlor is a full-stack social reading platform where readers can track books, organize customizable shelves and bookcases, leave detailed genre-specific ratings, write reviews, discover tropes, analyze reading moods, and build a deeply personal reading identity.
+## Stack
 
-Unlike traditional book tracking apps, The Book Parlor focuses on emotional metadata, aesthetic organization, and immersive reading experiences.
+- React + Vite + TypeScript
+- Tailwind CSS
+- Framer Motion
+- Supabase Auth, PostgreSQL, Row Level Security, and Storage-ready profile/custom asset fields
+- Google Books API first, Open Library fallback
+- AI-ready service boundaries for future trope detection and recommendations
 
----
+## MVP Included
 
-# Features
+- Auth page with Supabase-ready sign up/login and demo fallback
+- Dashboard with currently reading, yearly goal, stats, and quick add
+- Search/add book by title, author, or ISBN
+- Google Books lookup with Open Library fallback and demo data fallback
+- Manual/barcode/cover/bookshelf scan placeholder UI
+- My Books with independent reading status and ownership status filters
+- Book detail page with metadata, tropes, moods, content warnings, community ratings, reviews, and comments
+- Purchased, Read, TBR, Favorites, and Owned But Unread visual bookcases
+- Spine, cover, grid, and cozy shelf display modes
+- Genre-specific rating UI with large tappable icons
+- Rule-based `tropeDetectionService` placeholder for future AI
+- Basic discover, goals, stats, profile, settings, quotes, and reading session scaffolds
+- Supabase migration with tables and RLS policies
 
-## User Accounts & Profiles
+## Setup
 
-* Secure authentication with Supabase Auth
-* Personalized reader profiles
-* Public or private shelves and bookcases
-* Favorite genres, reading goals, and statistics
+```bash
+npm install
+npm run dev
+```
 
-## Book Tracking
+Copy `.env.example` to `.env` and add Supabase credentials:
 
-* Search books using Google Books API
-* Add books manually or via ISBN
-* Track:
+```bash
+VITE_SUPABASE_URL=https://your-project.supabase.co
+VITE_SUPABASE_ANON_KEY=your-anon-key
+VITE_GOOGLE_BOOKS_API_KEY=optional-google-books-key
+```
 
-  * Want to Read
-  * Currently Reading
-  * Read
-  * DNF
-  * Paused
+The app still runs without environment variables using demo data.
 
-## Ownership Tracking
+## Supabase
 
-Track whether books are:
+Apply the migration in `supabase/migrations/202605280001_initial_schema.sql` through the Supabase SQL editor or Supabase CLI.
 
-* Physically owned
-* eBook owned
-* Audiobook owned
-* Borrowed
-* Not owned
-* Need to buy
+The schema includes:
 
-## Cozy Visual Bookcases
+- `profiles`
+- `books`
+- `user_books`
+- `shelves`
+- `shelf_books`
+- `ratings`
+- `reviews`
+- `comments`
+- `likes`
+- `tropes`
+- `book_tropes`
+- `user_book_tropes`
+- `moods`
+- `book_moods`
+- `quotes`
+- `reading_sessions`
+- `bookcases`
+- `bookcase_books`
+- `goals`
+- `achievements`
+- `user_achievements`
+- `content_warnings`
+- `book_content_warnings`
 
-View books inside customizable virtual bookcases:
+RLS is enabled. Public book metadata, public reviews/comments, and public bookcases/shelves are readable. User-owned records are editable only by their owner. Notes, annotations, quotes, reading sessions, and private bookcase/shelf data remain owner-visible by default.
 
-* Read Bookcase
-* Purchased Bookcase
-* TBR Bookcase
-* Favorites Shelf
-* Owned But Unread
+## Project Structure
 
-Customize:
+```text
+src/
+  components/       reusable UI: book cards, bookcases, ratings, chips, reviews
+  data/             rating templates, constants, demo fallback data
+  lib/              Supabase client
+  pages/            app routes
+  services/         auth, books, shelves, bookcases, ratings, stats, reviews, comments, trope detection
+  styles/           Tailwind entry CSS
+supabase/
+  migrations/       PostgreSQL schema and RLS
+```
 
-* Shelf colors
-* Wallpapers
-* Cozy themes
-* Decorations
-* Seasonal aesthetics
-* Dark academia mode
-* Fantasy library mode
-* Café-inspired environments
+## Future AI Hooks
 
-## Genre-Specific Rating System
+`src/services/tropeDetectionService.ts` currently infers tropes and moods from simple keywords. Replace its `infer` method later with an AI call without changing the UI flow:
 
-Replace boring star ratings with immersive category-based reviews.
+1. Fetch description and metadata.
+2. Suggest genres, tropes, moods, and warnings.
+3. Let the user accept/remove/add tags.
+4. Store accepted tags and generate smart shelves.
 
-Examples:
-
-* Spice 🌶️
-* Worldbuilding ✨
-* Emotional Damage 💧
-* Horror 🌙
-* Romance ❤️
-* Suspense ⚡
-* Humor 👑
-* Plot Twists 🧩
-
-Different genres unlock different rating templates:
-
-* Romance
-* Fantasy
-* Horror
-* Mystery
-* Thriller
-* Literary Fiction
-* Manga
-* Nonfiction
-* Sci-Fi
-* Dark Romance
-* Romantasy
-* and more
-
-## Tropes & Mood Tracking
-
-Automatically organize books by:
-
-* Tropes
-* Genres
-* Emotional vibes
-* Reading moods
-
-Examples:
-
-* enemies-to-lovers
-* slow burn
-* dark academia
-* found family
-* cozy
-* devastating
-* healing
-* addictive
-
-## Community Features
-
-* Reviews
-* Comments
-* Spoiler protection
-* Community ratings
-* Public shelves
-* Public bookcases
-* Reading discussions
-
-## Reading Analytics
-
-Track:
-
-* Reading streaks
-* Reading sessions
-* Pages read
-* Monthly/yearly goals
-* Most-read genres
-* Favorite authors
-* Mood breakdowns
-* Reading habits
-
-## Quotes & Annotations
-
-Save:
-
-* Favorite quotes
-* Notes
-* Highlights
-* Page references
-* Mood tags
-* Color-coded tabs
-
----
-
-# Tech Stack
-
-## Frontend
-
-* React
-* Vite
-* Tailwind CSS
-* Framer Motion
-
-## Backend
-
-* Supabase
-* PostgreSQL
-* Row Level Security
-
-## APIs
-
-* Google Books API
-* Open Library API
-
----
-
-# Design Philosophy
-
-The Book Parlor is designed to feel:
-
-* warm
-* immersive
-* personal
-* cozy
-* emotional
-* aesthetic
-
-The interface should resemble:
-
-* a quiet bookstore
-* a late-night café
-* a softly lit personal library
-
-This is not just a CRUD tracker.
-It is a digital reading sanctuary.
-
----
-
-# Planned Features
-
-* AI trope detection
-* AI recommendations
-* Barcode scanning
-* Bookshelf photo recognition
-* Buddy reads
-* Reading clubs
-* Kindle sync
-* Shareable quote cards
-* Mobile application
-* Reading heatmaps
-* Seasonal reading events
-
----
-
-# MVP Goals
-
-The initial MVP includes:
-
-* Authentication
-* Book search
-* Reading shelves
-* Purchased bookcase
-* Genre-specific ratings
-* Reviews & comments
-* Reading goals
-* Basic analytics
-* Trope suggestions
-* Cozy customizable UI
-
----
-
-# Project Vision
-
-The Book Parlor aims to become a modern emotional reading platform that combines:
-
-* the social features of Goodreads
-* the aesthetics of TBR Bookshelf
-* the personality of Letterboxd
-* the warmth of a neighborhood book café
-
-Built for readers who want more than just star ratings.
+Recommendation logic should follow the same pattern: start with rule-based signals, then swap in an AI-backed service when ready.
