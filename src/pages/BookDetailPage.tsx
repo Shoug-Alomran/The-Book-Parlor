@@ -6,6 +6,7 @@ import { PageHeader } from "../components/PageHeader";
 import { ReviewsSection } from "../components/ReviewsSection";
 import { TropeChips } from "../components/TropeChips";
 import { bookService } from "../services/bookService";
+import { communityRatingService, type CommunityRatingBreakdown } from "../services/communityRatingService";
 import { commentService } from "../services/commentService";
 import { reviewService } from "../services/reviewService";
 import type { Book, Comment, Review } from "../types";
@@ -15,8 +16,10 @@ export function BookDetailPage() {
   const [book, setBook] = useState<Book>();
   const [reviews, setReviews] = useState<Review[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
+  const [ratingBreakdown, setRatingBreakdown] = useState<CommunityRatingBreakdown>({ type: "none", sourceLabel: "No ratings yet" });
   useEffect(() => {
     bookService.getBook(bookId).then(setBook);
+    communityRatingService.getCommunityRatingBreakdown(bookId).then(setRatingBreakdown).catch(() => setRatingBreakdown({ type: "none", sourceLabel: "No ratings yet" }));
     reviewService.listForBook(bookId).then(setReviews);
     commentService.listForBook(bookId).then(setComments);
   }, [bookId]);
@@ -37,7 +40,7 @@ export function BookDetailPage() {
         <div className="grid gap-5">
           <section className="cozy-card">
             <div className="mb-4 grid gap-3 sm:grid-cols-3">
-              <span className="chip"><Star size={14} />4.4 community avg</span>
+              <span className="chip"><Star size={14} />{ratingSummaryLabel(ratingBreakdown)}</span>
               <span className="chip"><MessageCircle size={14} />{reviews.length + comments.length} discussions</span>
               <span className="chip">{book.pageCount ?? "Unknown"} pages</span>
             </div>
@@ -49,17 +52,7 @@ export function BookDetailPage() {
               <div><h3 className="mb-2 font-bold">Content warnings</h3><TropeChips items={book.contentWarnings ?? []} tone="warning" /></div>
             </div>
           </section>
-          <section className="cozy-card">
-            <h2 className="mb-3 font-serif text-3xl font-bold">Community rating breakdown</h2>
-            <div className="grid gap-2 sm:grid-cols-2">
-              {["Overall", "Emotional Damage", "Worldbuilding", "Romance", "Pacing", "Ending"].map((metric, index) => (
-                <div key={metric} className="rounded-2xl bg-white/55 p-3 dark:bg-white/10">
-                  <div className="flex justify-between text-sm font-bold"><span>{metric}</span><span>{(4.7 - index * 0.2).toFixed(1)}</span></div>
-                  <div className="mt-2 h-2 rounded-full bg-mocha/10"><div className="h-2 rounded-full bg-gold" style={{ width: `${94 - index * 4}%` }} /></div>
-                </div>
-              ))}
-            </div>
-          </section>
+          <RatingBreakdownCard breakdown={ratingBreakdown} bookId={book.id} />
         </div>
       </section>
       <div className="mt-6 grid gap-5 lg:grid-cols-2">
@@ -68,4 +61,65 @@ export function BookDetailPage() {
       </div>
     </div>
   );
+}
+
+function RatingBreakdownCard({ breakdown, bookId }: { breakdown: CommunityRatingBreakdown; bookId: string }) {
+  if (breakdown.type === "internal") {
+    return (
+      <section className="cozy-card">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <h2 className="font-serif text-3xl font-bold">Book Parlor community rating breakdown</h2>
+            <p className="mt-1 text-sm font-semibold text-mocha/70 dark:text-cream/65">{breakdown.totalRatings} reader rating{breakdown.totalRatings === 1 ? "" : "s"}</p>
+          </div>
+          <span className="chip bg-sage/20"><Star size={14} />Book Parlor community</span>
+        </div>
+        <div className="mb-4 rounded-2xl bg-white/55 p-4 dark:bg-white/10">
+          <div className="flex justify-between text-sm font-bold"><span>Overall</span><span>{breakdown.overallAverage.toFixed(1)}</span></div>
+          <div className="mt-2 h-2 rounded-full bg-mocha/10"><div className="h-2 rounded-full bg-gold" style={{ width: `${(breakdown.overallAverage / 5) * 100}%` }} /></div>
+        </div>
+        <div className="grid gap-2 sm:grid-cols-2">
+          {breakdown.detailedAverages.filter((item) => item.label !== "Overall").map((metric) => (
+            <div key={metric.label} className="rounded-2xl bg-white/55 p-3 dark:bg-white/10">
+              <div className="flex justify-between text-sm font-bold"><span>{metric.label}</span><span>{metric.average.toFixed(1)}</span></div>
+              <div className="mt-2 h-2 rounded-full bg-mocha/10"><div className="h-2 rounded-full bg-gold" style={{ width: `${(metric.average / 5) * 100}%` }} /></div>
+            </div>
+          ))}
+        </div>
+      </section>
+    );
+  }
+
+  if (breakdown.type === "external") {
+    return (
+      <section className="cozy-card">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+          <h2 className="font-serif text-3xl font-bold">External rating</h2>
+          <span className="chip bg-gold/20"><Star size={14} />Imported from Google Books</span>
+        </div>
+        <div className="rounded-2xl bg-white/55 p-5 dark:bg-white/10">
+          <p className="font-serif text-5xl font-bold">{breakdown.averageRating.toFixed(1)}</p>
+          <p className="mt-2 text-sm font-semibold text-mocha/70 dark:text-cream/65">{breakdown.ratingsCount.toLocaleString()} Google Books rating{breakdown.ratingsCount === 1 ? "" : "s"}</p>
+          <p className="mt-4 leading-6 text-espresso/70 dark:text-cream/70">Detailed Book Parlor ratings will appear once readers rate this book.</p>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="cozy-card">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="font-serif text-3xl font-bold">No ratings yet</h2>
+        <span className="chip">No ratings yet</span>
+      </div>
+      <p className="leading-6 text-espresso/70 dark:text-cream/70">Be the first to rate this book after finishing it.</p>
+      <Link to={`/books/${bookId}/rate`} className="btn-primary mt-4">Be the first to rate</Link>
+    </section>
+  );
+}
+
+function ratingSummaryLabel(breakdown: CommunityRatingBreakdown) {
+  if (breakdown.type === "internal") return `${breakdown.overallAverage.toFixed(1)} Book Parlor avg`;
+  if (breakdown.type === "external") return `${breakdown.averageRating.toFixed(1)} external avg`;
+  return "No ratings yet";
 }

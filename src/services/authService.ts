@@ -2,7 +2,7 @@ import { supabase } from "../lib/supabase";
 
 export const authService = {
   async signUp(email: string, password: string, profile?: { username?: string; displayName?: string }) {
-    if (!supabase) return { user: { email }, demo: true };
+    if (!supabase) throw new Error("auth_not_configured");
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
@@ -13,7 +13,7 @@ export const authService = {
         },
       },
     });
-    if (error) throw error;
+    if (error) throw new Error(mapAuthError(error.message));
     if (data.user) {
       await this.ensureProfile(data.user.id, {
         username: profile?.username ?? email.split("@")[0],
@@ -23,9 +23,9 @@ export const authService = {
     return data;
   },
   async signIn(email: string, password: string) {
-    if (!supabase) return { user: { email }, demo: true };
+    if (!supabase) throw new Error("auth_not_configured");
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw error;
+    if (error) throw new Error(mapAuthError(error.message));
     if (data.user) {
       await this.ensureProfile(data.user.id, {
         username: data.user.email?.split("@")[0],
@@ -37,7 +37,7 @@ export const authService = {
   async signOut() {
     if (!supabase) return;
     const { error } = await supabase.auth.signOut();
-    if (error) throw error;
+    if (error) throw new Error("sign_out_failed");
   },
   async getSession() {
     if (!supabase) return null;
@@ -58,3 +58,13 @@ export const authService = {
     });
   },
 };
+
+function mapAuthError(message: string) {
+  const text = message.toLowerCase();
+  if (text.includes("invalid login credentials")) return "invalid_credentials";
+  if (text.includes("email not confirmed")) return "email_not_confirmed";
+  if (text.includes("already registered") || text.includes("already exists")) return "account_exists";
+  if (text.includes("password")) return "weak_password";
+  if (text.includes("email")) return "email_issue";
+  return "auth_failed";
+}

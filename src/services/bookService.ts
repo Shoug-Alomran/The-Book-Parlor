@@ -1,74 +1,17 @@
 import { demoBooks, demoUserBooks } from "../data/demoData";
-import { isUuid, stableUuid } from "../lib/ids";
+import { isUuid } from "../lib/ids";
 import { supabase } from "../lib/supabase";
 import type { Book, OwnershipStatus, ReadingStatus, UserBook } from "../types";
-import { tropeDetectionService } from "./tropeDetectionService";
-
-const GOOGLE_BOOKS_URL = "https://www.googleapis.com/books/v1/volumes";
-
-const normalizeGoogleBook = (item: any): Book => {
-  const info = item.volumeInfo ?? {};
-  const industryIds = info.industryIdentifiers ?? [];
-  const isbn10 = industryIds.find((id: any) => id.type === "ISBN_10")?.identifier;
-  const isbn13 = industryIds.find((id: any) => id.type === "ISBN_13")?.identifier;
-  return tropeDetectionService.enrichBook({
-    id: stableUuid(`google-books:${item.id}`),
-    externalId: item.id,
-    title: info.title ?? "Untitled book",
-    subtitle: info.subtitle,
-    authors: info.authors ?? ["Unknown author"],
-    description: info.description ?? "No description is available yet.",
-    coverUrl: info.imageLinks?.thumbnail?.replace("http://", "https://"),
-    isbn10,
-    isbn13,
-    pageCount: info.pageCount,
-    publisher: info.publisher,
-    publishedYear: info.publishedDate ? Number(String(info.publishedDate).slice(0, 4)) : undefined,
-    categories: info.categories ?? [],
-    language: info.language,
-    source: "google-books",
-    tropes: [],
-    moods: [],
-  });
-};
-
-const normalizeOpenLibraryBook = (doc: any): Book => {
-  const isbn = doc.isbn?.[0];
-  const externalId = doc.key ?? isbn ?? doc.title;
-  return tropeDetectionService.enrichBook({
-    id: stableUuid(`open-library:${externalId}`),
-    externalId,
-    title: doc.title ?? "Untitled book",
-    authors: doc.author_name ?? ["Unknown author"],
-    description: doc.first_sentence?.[0] ?? "No description is available yet.",
-    coverUrl: doc.cover_i ? `https://covers.openlibrary.org/b/id/${doc.cover_i}-L.jpg` : undefined,
-    isbn10: isbn?.length === 10 ? isbn : undefined,
-    isbn13: isbn?.length === 13 ? isbn : undefined,
-    pageCount: doc.number_of_pages_median,
-    publisher: doc.publisher?.[0],
-    publishedYear: doc.first_publish_year,
-    categories: doc.subject?.slice(0, 4) ?? [],
-    language: doc.language?.[0],
-    source: "open-library",
-    tropes: [],
-    moods: [],
-  });
-};
+import { bookToBookRow, externalBookMetadataService } from "./externalBookMetadataService";
 
 export const bookService = {
   async searchBooks(query: string): Promise<Book[]> {
     if (!query.trim()) return demoBooks;
     try {
-      const key = import.meta.env.VITE_GOOGLE_BOOKS_API_KEY;
-      const googleUrl = `${GOOGLE_BOOKS_URL}?q=${encodeURIComponent(query)}&maxResults=12${key ? `&key=${key}` : ""}`;
-      const googleResponse = await fetch(googleUrl);
-      const googleData = await googleResponse.json();
-      const googleBooks = (googleData.items ?? []).map(normalizeGoogleBook).filter((book: Book) => book.title);
+      const googleBooks = await externalBookMetadataService.searchGoogleBooks(query);
       if (googleBooks.length >= 3) return googleBooks;
-
-      const openResponse = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(query)}&limit=12`);
-      const openData = await openResponse.json();
-      return [...googleBooks, ...(openData.docs ?? []).map(normalizeOpenLibraryBook)].slice(0, 12);
+      const openLibraryBooks = await externalBookMetadataService.searchOpenLibrary(query);
+      return [...googleBooks, ...openLibraryBooks].slice(0, 12);
     } catch {
       return demoBooks.filter((book) => `${book.title} ${book.authors.join(" ")}`.toLowerCase().includes(query.toLowerCase()));
     }
@@ -105,36 +48,12 @@ export const bookService = {
   },
 
   async saveBook(book: Book, options?: { readingStatus?: ReadingStatus; ownershipStatus?: OwnershipStatus }) {
-    const enriched = tropeDetectionService.enrichBook({
-      ...book,
-      id: isUuid(book.id) ? book.id : stableUuid(`${book.source}:${book.externalId ?? book.isbn13 ?? book.title}`),
-    });
+    const enriched = await externalBookMetadataService.upsertBookFromExternalMetadata(book);
     if (!supabase) return enriched;
     const { data: userData, error: userError } = await supabase.auth.getUser();
     if (userError || !userData.user) throw new Error("Please log in before adding books to your library.");
 
-    const bookPayload = {
-      id: enriched.id,
-      external_id: enriched.externalId,
-      title: enriched.title,
-      subtitle: enriched.subtitle,
-      authors: enriched.authors,
-      description: enriched.description,
-      cover_url: enriched.coverUrl,
-      isbn_10: enriched.isbn10,
-      isbn_13: enriched.isbn13,
-      page_count: enriched.pageCount,
-      publisher: enriched.publisher,
-      published_year: enriched.publishedYear,
-      categories: enriched.categories,
-      language: enriched.language,
-      source: enriched.source,
-      tropes: enriched.tropes,
-      moods: enriched.moods,
-      content_warnings: enriched.contentWarnings ?? [],
-    };
-
-    const { error: bookError } = await supabase.from("books").upsert(bookPayload);
+    const { error: bookError } = await supabase.from("books").upsert(bookToBookRow(enriched));
     if (bookError) throw bookError;
 
     const { error: userBookError } = await supabase.from("user_books").upsert(
@@ -158,6 +77,9 @@ function mapBookRow(row: any): Book {
   return {
     id: row.id,
     externalId: row.external_id,
+    googleBooksId: row.google_books_id,
+    openlibraryWorkKey: row.openlibrary_work_key,
+    openlibraryEditionKey: row.openlibrary_edition_key,
     title: row.title,
     subtitle: row.subtitle,
     authors: row.authors ?? [],
@@ -171,6 +93,11 @@ function mapBookRow(row: any): Book {
     categories: row.categories ?? [],
     language: row.language,
     source: row.source ?? "manual",
+    externalAverageRating: row.external_average_rating === null || row.external_average_rating === undefined ? undefined : Number(row.external_average_rating),
+    externalRatingsCount: row.external_ratings_count ?? undefined,
+    externalRatingSource: row.external_rating_source ?? undefined,
+    externalSubjects: row.external_subjects ?? [],
+    importedMetadata: row.imported_metadata ?? {},
     tropes: row.tropes ?? [],
     moods: row.moods ?? [],
     contentWarnings: row.content_warnings ?? [],

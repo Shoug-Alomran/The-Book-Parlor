@@ -29,6 +29,9 @@ export type RatingGenre =
 export type Book = {
   id: string;
   externalId?: string;
+  googleBooksId?: string;
+  openlibraryWorkKey?: string;
+  openlibraryEditionKey?: string;
   title: string;
   subtitle?: string;
   authors: string[];
@@ -41,7 +44,12 @@ export type Book = {
   publishedYear?: number;
   categories: string[];
   language?: string;
-  source: "demo" | "google-books" | "open-library" | "manual";
+  source: "demo" | "google-books" | "open-library" | "google_books" | "open_library" | "manual";
+  externalAverageRating?: number;
+  externalRatingsCount?: number;
+  externalRatingSource?: "google_books";
+  externalSubjects?: string[];
+  importedMetadata?: Record<string, unknown>;
   tropes: string[];
   moods: string[];
   contentWarnings?: string[];
