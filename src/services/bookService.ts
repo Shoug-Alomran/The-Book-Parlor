@@ -1,19 +1,18 @@
-import { demoBooks, demoUserBooks } from "../data/demoData";
 import { isUuid } from "../lib/ids";
 import { supabase } from "../lib/supabase";
 import type { Book, OwnershipStatus, ReadingStatus, UserBook } from "../types";
-import { bookToBookRow, externalBookMetadataService } from "./externalBookMetadataService";
+import { bookToBookRow, externalBookMetadataService, getCachedExternalBook } from "./externalBookMetadataService";
 
 export const bookService = {
   async searchBooks(query: string): Promise<Book[]> {
-    if (!query.trim()) return demoBooks;
+    if (!query.trim()) return [];
     try {
       const googleBooks = await externalBookMetadataService.searchGoogleBooks(query);
       if (googleBooks.length >= 3) return googleBooks;
       const openLibraryBooks = await externalBookMetadataService.searchOpenLibrary(query);
       return [...googleBooks, ...openLibraryBooks].slice(0, 12);
     } catch {
-      return demoBooks.filter((book) => `${book.title} ${book.authors.join(" ")}`.toLowerCase().includes(query.toLowerCase()));
+      return [];
     }
   },
 
@@ -22,11 +21,11 @@ export const bookService = {
       const { data } = await supabase.from("books").select("*").eq("id", bookId).maybeSingle();
       if (data) return mapBookRow(data);
     }
-    return demoBooks.find((book) => book.id === bookId) ?? demoUserBooks.find((item) => item.book.id === bookId)?.book;
+    return getCachedExternalBook(bookId);
   },
 
   async getUserBooks(): Promise<UserBook[]> {
-    if (!supabase) return demoUserBooks;
+    if (!supabase) return [];
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) return [];
     const { data, error } = await supabase.from("user_books").select("*, books(*)").order("updated_at", { ascending: false });
@@ -35,7 +34,7 @@ export const bookService = {
   },
 
   async getUserBookForBook(bookId: string): Promise<UserBook | undefined> {
-    if (!supabase) return demoUserBooks.find((item) => item.book.id === bookId);
+    if (!supabase) return undefined;
     const { data: userData } = await supabase.auth.getUser();
     if (!userData.user) return undefined;
     const { data, error } = await supabase
@@ -48,20 +47,28 @@ export const bookService = {
   },
 
   async saveBook(book: Book, options?: { readingStatus?: ReadingStatus; ownershipStatus?: OwnershipStatus }) {
-    const enriched = await externalBookMetadataService.upsertBookFromExternalMetadata(book);
-    if (!supabase) return enriched;
+    if (!supabase) return externalBookMetadataService.upsertBookFromExternalMetadata(book);
     const { data: userData, error: userError } = await supabase.auth.getUser();
-    if (userError || !userData.user) throw new Error("Please log in before adding books to your library.");
+    if (userError || !userData.user) throw new Error("auth_required");
+
+    const enriched = await externalBookMetadataService.upsertBookFromExternalMetadata(book);
 
     const { error: bookError } = await supabase.from("books").upsert(bookToBookRow(enriched));
     if (bookError) throw bookError;
+
+    const { data: existingUserBook } = await supabase
+      .from("user_books")
+      .select("reading_status, ownership_status")
+      .eq("user_id", userData.user.id)
+      .eq("book_id", enriched.id)
+      .maybeSingle();
 
     const { error: userBookError } = await supabase.from("user_books").upsert(
       {
         user_id: userData.user.id,
         book_id: enriched.id,
-        reading_status: options?.readingStatus ?? "Want to Read",
-        ownership_status: options?.ownershipStatus ?? "Not Owned",
+        reading_status: options?.readingStatus ?? existingUserBook?.reading_status ?? "Want to Read",
+        ownership_status: options?.ownershipStatus ?? existingUserBook?.ownership_status ?? "Not Owned",
         format: "Physical book",
         current_page: 0,
         updated_at: new Date().toISOString(),

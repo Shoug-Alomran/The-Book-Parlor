@@ -1,5 +1,5 @@
 import { BookMarked, MessageCircle, ShoppingBag, Star } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { CommentsSection } from "../components/CommentsSection";
 import { PageHeader } from "../components/PageHeader";
@@ -13,10 +13,13 @@ import type { Book, Comment, Review } from "../types";
 
 export function BookDetailPage() {
   const { bookId = "" } = useParams();
+  const navigate = useNavigate();
   const [book, setBook] = useState<Book>();
   const [reviews, setReviews] = useState<Review[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
   const [ratingBreakdown, setRatingBreakdown] = useState<CommunityRatingBreakdown>({ type: "none", sourceLabel: "No ratings yet" });
+  const [toast, setToast] = useState<{ text: string; tone: "success" | "error" } | null>(null);
+  const [savingAction, setSavingAction] = useState<"shelf" | "purchased" | null>(null);
   useEffect(() => {
     bookService.getBook(bookId).then(setBook);
     communityRatingService.getCommunityRatingBreakdown(bookId).then(setRatingBreakdown).catch(() => setRatingBreakdown({ type: "none", sourceLabel: "No ratings yet" }));
@@ -24,17 +27,47 @@ export function BookDetailPage() {
     commentService.listForBook(bookId).then(setComments);
   }, [bookId]);
 
+  const saveToLibrary = async (action: "shelf" | "purchased") => {
+    if (!book) return;
+    try {
+      setSavingAction(action);
+      await bookService.saveBook(book, {
+        readingStatus: action === "shelf" ? "Want to Read" : undefined,
+        ownershipStatus: action === "purchased" ? "Purchased / Physically Owned" : undefined,
+      });
+      showToast(action === "purchased" ? "Marked as purchased and added to your library." : "Added to your Want to Read shelf.", "success");
+    } catch (error) {
+      const message = error instanceof Error && error.message === "auth_required"
+        ? "Sign in to add books to your reading room."
+        : "We could not update your shelf just now. Please try again.";
+      showToast(message, "error");
+    } finally {
+      setSavingAction(null);
+    }
+  };
+
+  const showToast = (text: string, tone: "success" | "error") => {
+    setToast({ text, tone });
+    window.setTimeout(() => setToast(null), 3000);
+  };
+
   if (!book) return <PageHeader title="Book not found" description="Try searching for it, then add it to your parlor." />;
 
   return (
     <div>
+      {toast && (
+        <div className={`fixed right-5 top-5 z-50 rounded-2xl px-5 py-3 text-sm font-bold shadow-glow ${toast.tone === "success" ? "bg-espresso text-cream dark:bg-gold dark:text-espresso" : "bg-rose text-espresso"}`}>
+          {toast.text}
+          {toast.tone === "error" && <button type="button" onClick={() => navigate("/auth")} className="ml-3 underline">Sign in</button>}
+        </div>
+      )}
       <PageHeader eyebrow="Book detail" title={book.title} description={book.authors.join(", ")} action={<Link to={`/books/${book.id}/rate`} className="btn-primary"><Star size={18} />Rate this book</Link>} />
       <section className="grid gap-6 lg:grid-cols-[300px_1fr]">
         <div className="cozy-card">
           <img src={book.coverUrl} alt={`${book.title} cover`} className="aspect-[2/3] w-full rounded-2xl object-cover shadow-2xl" />
           <div className="mt-4 grid gap-2">
-            <button className="btn-primary"><BookMarked size={18} />Add to shelf</button>
-            <button className="btn-soft"><ShoppingBag size={18} />Mark purchased</button>
+            <button type="button" disabled={savingAction !== null} onClick={() => saveToLibrary("shelf")} className="btn-primary disabled:opacity-60"><BookMarked size={18} />{savingAction === "shelf" ? "Adding..." : "Add to shelf"}</button>
+            <button type="button" disabled={savingAction !== null} onClick={() => saveToLibrary("purchased")} className="btn-soft disabled:opacity-60"><ShoppingBag size={18} />{savingAction === "purchased" ? "Saving..." : "Mark purchased"}</button>
           </div>
         </div>
         <div className="grid gap-5">

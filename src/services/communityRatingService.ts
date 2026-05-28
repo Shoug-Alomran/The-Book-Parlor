@@ -1,4 +1,5 @@
 import { supabase } from "../lib/supabase";
+import { isUuid } from "../lib/ids";
 
 export type InternalRatingBreakdown = {
   type: "internal";
@@ -25,6 +26,7 @@ export type CommunityRatingBreakdown = InternalRatingBreakdown | ExternalRatingF
 export const communityRatingService = {
   async getCommunityRatingBreakdown(bookId: string): Promise<CommunityRatingBreakdown> {
     if (!supabase) return { type: "none", sourceLabel: "No ratings yet" };
+    if (!isUuid(bookId)) return { type: "none", sourceLabel: "No ratings yet" };
 
     const { data: completedUserBooks, error: statusError } = await supabase
       .from("user_books")

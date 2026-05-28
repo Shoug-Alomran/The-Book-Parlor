@@ -19,14 +19,18 @@ export const externalBookMetadataService = {
     const response = await fetch(url);
     if (!response.ok) throw new Error("Google Books search is unavailable right now.");
     const data = await response.json();
-    return (data.items ?? []).map((volume: GoogleVolume) => this.normalizeGoogleBook(volume)).filter((book: Book) => book.title);
+    const books = (data.items ?? []).map((volume: GoogleVolume) => this.normalizeGoogleBook(volume)).filter((book: Book) => book.title);
+    cacheBooks(books);
+    return books;
   },
 
   async fetchGoogleBookById(id: string): Promise<Book | undefined> {
     const key = import.meta.env.VITE_GOOGLE_BOOKS_API_KEY;
     const response = await fetch(`${GOOGLE_BOOKS_URL}/${encodeURIComponent(id)}${key ? `?key=${key}` : ""}`);
     if (!response.ok) return undefined;
-    return this.normalizeGoogleBook(await response.json());
+    const book = this.normalizeGoogleBook(await response.json());
+    cacheBooks([book]);
+    return book;
   },
 
   async searchOpenLibrary(query: string): Promise<Book[]> {
@@ -34,7 +38,9 @@ export const externalBookMetadataService = {
     const response = await fetch(`${OPEN_LIBRARY_SEARCH_URL}?q=${encodeURIComponent(query)}&limit=12`);
     if (!response.ok) throw new Error("Open Library fallback is unavailable right now.");
     const data = await response.json();
-    return (data.docs ?? []).map((result: any) => this.normalizeOpenLibraryBook(result)).filter((book: Book) => book.title);
+    const books = (data.docs ?? []).map((result: any) => this.normalizeOpenLibraryBook(result)).filter((book: Book) => book.title);
+    cacheBooks(books);
+    return books;
   },
 
   normalizeGoogleBook(volume: GoogleVolume): Book {
@@ -126,6 +132,29 @@ export const externalBookMetadataService = {
     return enriched;
   },
 };
+
+export function getCachedExternalBook(bookId: string): Book | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    const cache = JSON.parse(window.sessionStorage.getItem("book-parlor.external-books") ?? "{}") as Record<string, Book>;
+    return cache[bookId];
+  } catch {
+    return undefined;
+  }
+}
+
+function cacheBooks(books: Book[]) {
+  if (typeof window === "undefined") return;
+  try {
+    const cache = JSON.parse(window.sessionStorage.getItem("book-parlor.external-books") ?? "{}") as Record<string, Book>;
+    books.forEach((book) => {
+      cache[book.id] = book;
+    });
+    window.sessionStorage.setItem("book-parlor.external-books", JSON.stringify(cache));
+  } catch {
+    // Session cache is an enhancement only; external searches still work without it.
+  }
+}
 
 export function bookToBookRow(book: Book) {
   return {

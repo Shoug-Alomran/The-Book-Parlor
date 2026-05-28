@@ -13,17 +13,17 @@ The Book Parlor is a cozy full-stack reading tracker inspired by Goodreads and T
 
 ## MVP Included
 
-- Auth page with Supabase-ready sign up/login and demo fallback
+- Auth page with Supabase-backed email/password and username/password login
 - Dashboard with currently reading, yearly goal, stats, and quick add
 - Search/add book by title, author, or ISBN
-- Google Books lookup with Open Library fallback and demo data fallback
-- Manual/barcode/cover/bookshelf scan placeholder UI
+- Google Books lookup with Open Library fallback
+- Manual add and future scanner entry points
 - My Books with independent reading status and ownership status filters
 - Book detail page with metadata, tropes, moods, content warnings, community ratings, reviews, and comments
 - Purchased, Read, TBR, Favorites, and Owned But Unread visual bookcases
 - Spine, cover, grid, and cozy shelf display modes
 - Genre-specific rating UI with large tappable icons
-- Rule-based `tropeDetectionService` placeholder for future AI
+- Rule-based `tropeDetectionService` that can be replaced with AI later
 - Basic discover, goals, stats, profile, settings, quotes, and reading session scaffolds
 - Supabase migration with tables and RLS policies
 
@@ -42,7 +42,7 @@ VITE_SUPABASE_ANON_KEY=your-anon-key
 VITE_GOOGLE_BOOKS_API_KEY=optional-google-books-key
 ```
 
-The app still runs without environment variables using demo data.
+The app requires Supabase credentials for account and library persistence. Google Books search works without an API key where the public API allows it, and `VITE_GOOGLE_BOOKS_API_KEY` can be added for more reliable metadata requests.
 
 ## Supabase
 
@@ -89,7 +89,7 @@ RLS is enabled. Public book metadata, public reviews/comments, and public bookca
 ```text
 src/
   components/       reusable UI: book cards, bookcases, ratings, chips, reviews
-  data/             rating templates, constants, demo fallback data
+  data/             rating templates and constants
   lib/              Supabase client
   pages/            app routes
   services/         auth, books, shelves, bookcases, ratings, stats, reviews, comments, trope detection

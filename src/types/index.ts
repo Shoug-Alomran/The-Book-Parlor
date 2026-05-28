@@ -44,7 +44,7 @@ export type Book = {
   publishedYear?: number;
   categories: string[];
   language?: string;
-  source: "demo" | "google-books" | "open-library" | "google_books" | "open_library" | "manual";
+  source: "google-books" | "open-library" | "google_books" | "open_library" | "manual";
   externalAverageRating?: number;
   externalRatingsCount?: number;
   externalRatingSource?: "google_books";
