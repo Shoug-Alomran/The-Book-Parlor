@@ -42,6 +42,11 @@ export type Book = {
   pageCount?: number;
   publisher?: string;
   publishedYear?: number;
+  publishedDate?: string;
+  editionTitle?: string;
+  format?: string;
+  seriesName?: string;
+  seriesPosition?: string;
   categories: string[];
   language?: string;
   source: "google-books" | "open-library" | "google_books" | "open_library" | "manual";
@@ -115,8 +120,26 @@ export type UserBook = {
   wouldReadAgain?: boolean;
   dnfReason?: string;
   privateNotes?: string;
+  selectedEdition?: BookEdition;
   shelves: string[];
   rating?: Rating;
+};
+
+export type BookEdition = {
+  id: string;
+  editionTitle: string;
+  format?: string;
+  isbn10?: string;
+  isbn13?: string;
+  pageCount?: number;
+  language?: string;
+  publisher?: string;
+  publishedDate?: string;
+  publishedYear?: number;
+  coverUrl?: string;
+  source: "google_books" | "open_library" | "manual";
+  openlibraryEditionKey?: string;
+  googleBooksId?: string;
 };
 
 export type Rating = {

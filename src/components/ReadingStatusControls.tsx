@@ -1,4 +1,4 @@
-import { BookOpen, CheckCircle2, HeartCrack, ListPlus, Save } from "lucide-react";
+import { BookOpen, CheckCircle2, HeartCrack, ListPlus, Save, ShoppingBag } from "lucide-react";
 import { useMemo, useState } from "react";
 import { bookService } from "../services/bookService";
 import type { ReadingStatus, UserBook } from "../types";
@@ -88,6 +88,15 @@ export function ReadingStatusControls({ userBook, compact = false, onChange }: P
           </button>
         ))}
       </div>
+      <button
+        type="button"
+        disabled={saving}
+        onClick={() => saveUpdates({ ownershipStatus: "Purchased / Physically Owned" }, "Marked as purchased.")}
+        className={userBook.ownershipStatus === "Purchased / Physically Owned" ? "btn-primary mt-2 justify-center px-3" : "btn-soft mt-2 justify-center px-3"}
+      >
+        <ShoppingBag size={17} />
+        <span>Purchased</span>
+      </button>
 
       {userBook.readingStatus === "Currently Reading" && (
         <div className="mt-5 rounded-2xl bg-cream/70 p-4 dark:bg-espresso/40">

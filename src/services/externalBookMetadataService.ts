@@ -1,11 +1,12 @@
 import { isUuid, stableUuid } from "../lib/ids";
 import { supabase } from "../lib/supabase";
-import type { Book } from "../types";
+import type { Book, BookEdition } from "../types";
 import { tropeDetectionService } from "./tropeDetectionService";
 
 const GOOGLE_BOOKS_URL = "https://www.googleapis.com/books/v1/volumes";
 const OPEN_LIBRARY_SEARCH_URL = "https://openlibrary.org/search.json";
 const OPEN_LIBRARY_ISBN_URL = "https://openlibrary.org/isbn";
+const OPEN_LIBRARY_BASE_URL = "https://openlibrary.org";
 
 type GoogleVolume = {
   id: string;
@@ -67,6 +68,15 @@ export const externalBookMetadataService = {
     return (await this.searchOpenLibrary(`${book.title} ${book.authors[0] ?? ""}`))[0];
   },
 
+  async fetchOpenLibraryEditions(book: Book): Promise<BookEdition[]> {
+    const workKey = book.openlibraryWorkKey;
+    if (!workKey) return [];
+    const response = await fetch(`${OPEN_LIBRARY_BASE_URL}${workKey}/editions.json?limit=24`);
+    if (!response.ok) return [];
+    const data = await response.json();
+    return (data.entries ?? []).map((entry: any) => normalizeOpenLibraryEditionToEdition(entry)).filter(Boolean);
+  },
+
   normalizeGoogleBook(volume: GoogleVolume): Book {
     const info = volume.volumeInfo ?? {};
     const industryIds = info.industryIdentifiers ?? [];
@@ -86,7 +96,10 @@ export const externalBookMetadataService = {
       isbn13,
       pageCount: info.pageCount,
       publisher: info.publisher,
+      publishedDate,
       publishedYear: publishedDate ? Number(String(publishedDate).slice(0, 4)) : undefined,
+      editionTitle: info.subtitle ? `${info.title}: ${info.subtitle}` : info.title,
+      format: info.printType,
       categories: info.categories ?? [],
       language: info.language,
       source: "google_books",
@@ -128,6 +141,8 @@ export const externalBookMetadataService = {
       pageCount: result.number_of_pages_median,
       publisher: result.publisher?.[0],
       publishedYear: result.first_publish_year,
+      publishedDate: result.first_publish_year ? String(result.first_publish_year) : undefined,
+      editionTitle: result.edition_key?.[0] ?? result.title,
       categories: result.subject?.slice(0, 8) ?? [],
       language: result.language?.[0],
       source: "open_library",
@@ -163,7 +178,9 @@ export const externalBookMetadataService = {
       isbn13,
       pageCount: result.number_of_pages,
       publisher: result.publishers?.[0],
+      publishedDate: result.publish_date,
       publishedYear,
+      editionTitle: result.edition_name ?? result.title,
       categories: result.subjects?.slice(0, 8) ?? [],
       language: result.languages?.[0]?.key?.replace("/languages/", ""),
       source: "open_library",
@@ -202,7 +219,10 @@ export const externalBookMetadataService = {
         isbn13: firstText(google?.isbn13, openLibrary?.isbn13, current.isbn13),
         pageCount: google?.pageCount ?? openLibrary?.pageCount ?? current.pageCount,
         publisher: firstText(google?.publisher, openLibrary?.publisher, current.publisher),
+        publishedDate: firstText(google?.publishedDate, openLibrary?.publishedDate, current.publishedDate),
         publishedYear: google?.publishedYear ?? openLibrary?.publishedYear ?? current.publishedYear,
+        editionTitle: firstText(google?.editionTitle, openLibrary?.editionTitle, current.editionTitle),
+        format: firstText(google?.format, openLibrary?.format, current.format),
         categories: firstArray(google?.categories, current.categories, openLibrary?.categories),
         language: firstText(google?.language, openLibrary?.language, current.language),
         source: google ? "google_books" : openLibrary ? "open_library" : current.source,
@@ -257,6 +277,27 @@ function firstUsefulDescription(...values: Array<string | undefined>) {
   return values.find((value) => value && value.trim() && value !== "No description is available yet.");
 }
 
+function normalizeOpenLibraryEditionToEdition(entry: any): BookEdition {
+  const isbn10 = entry.isbn_10?.[0];
+  const isbn13 = entry.isbn_13?.[0];
+  const publishedYear = entry.publish_date ? Number(String(entry.publish_date).match(/\d{4}/)?.[0]) : undefined;
+  return {
+    id: `open_library:${entry.key ?? isbn13 ?? isbn10 ?? entry.title}`,
+    editionTitle: entry.edition_name ?? entry.title ?? "Open Library edition",
+    format: entry.physical_format,
+    isbn10,
+    isbn13,
+    pageCount: entry.number_of_pages,
+    language: entry.languages?.[0]?.key?.replace("/languages/", ""),
+    publisher: entry.publishers?.[0],
+    publishedDate: entry.publish_date,
+    publishedYear,
+    coverUrl: entry.covers?.[0] ? `https://covers.openlibrary.org/b/id/${entry.covers[0]}-L.jpg` : undefined,
+    source: "open_library",
+    openlibraryEditionKey: entry.key,
+  };
+}
+
 export function getCachedExternalBook(bookId: string): Book | undefined {
   if (typeof window === "undefined") return undefined;
   try {
@@ -307,7 +348,12 @@ export function bookToLiveBookRow(book: Book) {
     isbn_13: book.isbn13,
     page_count: book.pageCount,
     publisher: book.publisher,
+    published_date: book.publishedDate,
     published_year: book.publishedYear,
+    edition_title: book.editionTitle,
+    format: book.format,
+    series_name: book.seriesName,
+    series_position: book.seriesPosition,
     language: book.language,
     source: book.source,
   };
@@ -329,7 +375,10 @@ export function bookToRequiredBookRow(book: Book) {
     isbn_13: book.isbn13,
     page_count: book.pageCount,
     publisher: book.publisher,
+    published_date: book.publishedDate,
     published_year: book.publishedYear,
+    edition_title: book.editionTitle,
+    format: book.format,
     language: book.language,
     source: book.source,
   };

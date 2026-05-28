@@ -1,6 +1,6 @@
 import { isUuid } from "../lib/ids";
 import { supabase } from "../lib/supabase";
-import type { Book, OwnershipStatus, ReadingStatus, UserBook } from "../types";
+import type { Book, BookEdition, OwnershipStatus, ReadingStatus, UserBook } from "../types";
 import { externalBookMetadataService, getCachedExternalBook } from "./externalBookMetadataService";
 import { bookEnrichmentService } from "./bookEnrichmentService";
 
@@ -87,16 +87,18 @@ export const bookService = {
     return enriched;
   },
 
-  async updateUserBook(userBookId: string, updates: { readingStatus?: ReadingStatus; currentPage?: number; finishDate?: string | null; startDate?: string | null }) {
+  async updateUserBook(userBookId: string, updates: { readingStatus?: ReadingStatus; ownershipStatus?: OwnershipStatus; currentPage?: number; finishDate?: string | null; startDate?: string | null; selectedEdition?: BookEdition }) {
     if (!supabase) throw new Error("auth_required");
     const { data: userData, error: userError } = await supabase.auth.getUser();
     if (userError || !userData.user) throw new Error("auth_required");
 
     const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
     if (updates.readingStatus) row.reading_status = updates.readingStatus;
+    if (updates.ownershipStatus) row.ownership_status = updates.ownershipStatus;
     if (updates.currentPage !== undefined) row.current_page = updates.currentPage;
     if (updates.startDate !== undefined) row.start_date = updates.startDate;
     if (updates.finishDate !== undefined) row.finish_date = updates.finishDate;
+    if (updates.selectedEdition !== undefined) row.selected_edition = updates.selectedEdition;
 
     const { data, error } = await supabase
       .from("user_books")
@@ -177,6 +179,11 @@ function mapBookRow(row: any): Book {
     pageCount: row.page_count,
     publisher: row.publisher,
     publishedYear: row.published_year,
+    publishedDate: row.published_date,
+    editionTitle: row.edition_title,
+    format: row.format,
+    seriesName: row.series_name,
+    seriesPosition: row.series_position,
     categories: mergeMetadataValues(row.categories ?? row.external_categories ?? [], acceptedAI.genres),
     language: row.language,
     source: row.source ?? "manual",
@@ -211,6 +218,7 @@ function mapUserBookRow(row: any): UserBook {
     wouldReadAgain: row.would_read_again,
     dnfReason: row.dnf_reason,
     privateNotes: row.private_notes,
+    selectedEdition: row.selected_edition,
     shelves: [],
   };
 }

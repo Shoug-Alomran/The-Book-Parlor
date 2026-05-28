@@ -6,15 +6,15 @@ import { PageHeader } from "../components/PageHeader";
 import { ReadingStatusControls } from "../components/ReadingStatusControls";
 import { ReviewsSection } from "../components/ReviewsSection";
 import { TropeChips } from "../components/TropeChips";
-import { AISuggestionsPanel } from "../components/books/AISuggestionsPanel";
 import { EditionDetailsCard } from "../components/books/EditionDetailsCard";
 import { MetadataStatusCard } from "../components/books/MetadataStatusCard";
 import { bookService } from "../services/bookService";
 import { bookEnrichmentService } from "../services/bookEnrichmentService";
 import { communityRatingService, type CommunityRatingBreakdown } from "../services/communityRatingService";
 import { commentService } from "../services/commentService";
+import { externalBookMetadataService } from "../services/externalBookMetadataService";
 import { reviewService } from "../services/reviewService";
-import type { Book, BookAISuggestion, Comment, Review, UserBook } from "../types";
+import type { Book, BookAISuggestion, BookEdition, Comment, Review, UserBook } from "../types";
 
 export function BookDetailPage() {
   const { bookId = "" } = useParams();
@@ -25,11 +25,16 @@ export function BookDetailPage() {
   const [userBook, setUserBook] = useState<UserBook>();
   const [aiSuggestions, setAISuggestions] = useState<BookAISuggestion[]>([]);
   const [ratingBreakdown, setRatingBreakdown] = useState<CommunityRatingBreakdown>({ type: "none", sourceLabel: "No ratings yet" });
+  const [editions, setEditions] = useState<BookEdition[]>([]);
   const [toast, setToast] = useState<{ text: string; tone: "success" | "error" } | null>(null);
   const [savingAction, setSavingAction] = useState<"shelf" | "purchased" | null>(null);
   const [enriching, setEnriching] = useState(false);
+  const [switchingEditionId, setSwitchingEditionId] = useState<string>();
   useEffect(() => {
-    bookService.getBook(bookId).then(setBook);
+    bookService.getBook(bookId).then((nextBook) => {
+      setBook(nextBook);
+      if (nextBook) externalBookMetadataService.fetchOpenLibraryEditions(nextBook).then(setEditions).catch(() => setEditions([]));
+    });
     bookService.getUserBookForBook(bookId).then(setUserBook).catch(() => setUserBook(undefined));
     bookEnrichmentService.listAISuggestions(bookId).then(setAISuggestions);
     communityRatingService.getCommunityRatingBreakdown(bookId).then(setRatingBreakdown).catch(() => setRatingBreakdown({ type: "none", sourceLabel: "No ratings yet" }));
@@ -77,7 +82,8 @@ export function BookDetailPage() {
       const result = await bookEnrichmentService.enrichBook(book);
       setBook(result.book);
       setAISuggestions(result.suggestions);
-      showToast("Book details enriched. Review the AI suggestions before accepting them.", "success");
+      externalBookMetadataService.fetchOpenLibraryEditions(result.book).then(setEditions).catch(() => setEditions([]));
+      showToast("Book details enriched from factual sources. AI vibes are marked separately.", "success");
     } catch (error) {
       console.error("Book Parlor enrichment failed", error);
       showToast("We could not enrich this book just now. Please try again.", "error");
@@ -86,27 +92,21 @@ export function BookDetailPage() {
     }
   };
 
-  const acceptAISuggestions = async () => {
-    if (!book) return;
-    try {
-      const next = await bookEnrichmentService.acceptAISuggestions(book, aiSuggestions);
-      setBook(next);
-      setAISuggestions([]);
-      showToast("AI suggestions accepted into this book profile.", "success");
-    } catch (error) {
-      console.error("Book Parlor AI suggestion accept failed", error);
-      showToast("We could not accept those suggestions just now.", "error");
+  const switchEdition = async (edition: BookEdition) => {
+    if (!userBook) {
+      showToast("Add this book to your library before choosing an edition.", "error");
+      return;
     }
-  };
-
-  const rejectAISuggestions = async () => {
     try {
-      await bookEnrichmentService.rejectAISuggestions(aiSuggestions);
-      setAISuggestions([]);
-      showToast("AI suggestions rejected.", "success");
+      setSwitchingEditionId(edition.id);
+      const next = await bookService.updateUserBook(userBook.id, { selectedEdition: edition });
+      setUserBook(next);
+      showToast("Your saved edition was updated.", "success");
     } catch (error) {
-      console.error("Book Parlor AI suggestion reject failed", error);
-      showToast("We could not reject those suggestions just now.", "error");
+      console.error("Book Parlor edition switch failed", error);
+      showToast("We could not switch editions just now.", "error");
+    } finally {
+      setSwitchingEditionId(undefined);
     }
   };
 
@@ -121,6 +121,19 @@ export function BookDetailPage() {
         </div>
       )}
       <PageHeader eyebrow="Book detail" title={book.title} description={book.authors.join(", ")} action={<div className="flex flex-wrap gap-2"><button type="button" onClick={enrichBook} disabled={enriching} className="btn-soft">{enriching ? "Enriching..." : "Enrich book details"}</button><Link to={`/books/${book.id}/rate`} className="btn-primary"><Star size={18} />Rate this book</Link></div>} />
+      {userBook ? (
+        <div className="mb-6">
+          <ReadingStatusControls userBook={userBook} onChange={setUserBook} />
+        </div>
+      ) : (
+        <section className="cozy-card mb-6">
+          <h2 className="font-serif text-2xl font-bold">Add this book to start tracking it.</h2>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <button type="button" disabled={savingAction !== null} onClick={() => saveToLibrary("shelf")} className="btn-primary disabled:opacity-60"><BookMarked size={18} />Want to Read</button>
+            <button type="button" disabled={savingAction !== null} onClick={() => saveToLibrary("purchased")} className="btn-soft disabled:opacity-60"><ShoppingBag size={18} />Purchased</button>
+          </div>
+        </section>
+      )}
       <section className="grid gap-6 lg:grid-cols-[300px_1fr]">
         <div className="cozy-card">
           <img src={book.coverUrl} alt={`${book.title} cover`} className="aspect-[2/3] w-full rounded-2xl object-cover shadow-2xl" />
@@ -131,6 +144,7 @@ export function BookDetailPage() {
         </div>
         <div className="grid gap-5">
           <MetadataStatusCard book={book} loading={enriching} hasAISuggestions={aiSuggestions.length > 0 || Boolean(book.aiSummary)} onEnrich={enrichBook} />
+          <EditionDetailsCard book={book} selectedEdition={userBook?.selectedEdition} editions={editions} switchingEditionId={switchingEditionId} onSwitchEdition={switchEdition} />
           <section className="cozy-card">
             <div className="mb-4 grid gap-3 sm:grid-cols-3">
               <span className="chip"><Star size={14} />{ratingSummaryLabel(ratingBreakdown)}</span>
@@ -153,16 +167,14 @@ export function BookDetailPage() {
               </div>
             )}
             <div className="mt-5 grid gap-4">
+              <SeriesInfo book={book} />
               <div><h3 className="mb-2 font-bold">Genres</h3><TropeChips items={book.categories} /></div>
-              <div><h3 className="mb-2 font-bold">Tropes</h3><TropeChips items={book.tropes} /></div>
-              <div><h3 className="mb-2 font-bold">Moods</h3><TropeChips items={book.moods} tone="mood" /></div>
+              <div><h3 className="mb-2 font-bold">Tropes {aiSuggestions.some((item) => item.fieldName === "tropes") && <span className="chip ml-2 bg-gold/20">AI inferred</span>}</h3><TropeChips items={book.tropes.length ? book.tropes : suggestionValues(aiSuggestions, "tropes")} /></div>
+              <div><h3 className="mb-2 font-bold">Moods {aiSuggestions.some((item) => item.fieldName === "moods") && <span className="chip ml-2 bg-gold/20">AI inferred</span>}</h3><TropeChips items={book.moods.length ? book.moods : suggestionValues(aiSuggestions, "moods")} tone="mood" /></div>
               <div><h3 className="mb-2 font-bold">Content warnings</h3><TropeChips items={book.contentWarnings ?? []} tone="warning" /></div>
             </div>
           </section>
-          <EditionDetailsCard book={book} />
-          <AISuggestionsPanel suggestions={aiSuggestions} onAccept={acceptAISuggestions} onReject={rejectAISuggestions} />
           <RatingBreakdownCard breakdown={ratingBreakdown} bookId={book.id} />
-          {userBook && <ReadingStatusControls userBook={userBook} onChange={setUserBook} />}
         </div>
       </section>
       <div className="mt-6 grid gap-5 lg:grid-cols-2">
@@ -171,6 +183,26 @@ export function BookDetailPage() {
       </div>
     </div>
   );
+}
+
+function SeriesInfo({ book }: { book: Book }) {
+  return (
+    <div>
+      <h3 className="mb-2 font-bold">Series information</h3>
+      {book.seriesName ? (
+        <span className="chip">Book {book.seriesPosition ?? "?"} in the {book.seriesName} series</span>
+      ) : (
+        <span className="chip">Series status unknown</span>
+      )}
+    </div>
+  );
+}
+
+function suggestionValues(suggestions: BookAISuggestion[], fieldName: string) {
+  return suggestions
+    .filter((suggestion) => suggestion.fieldName === fieldName)
+    .map((suggestion) => Array.isArray(suggestion.suggestedValue) ? undefined : suggestion.suggestedValue.value)
+    .filter(Boolean) as string[];
 }
 
 function hasUsefulDescription(description?: string) {
