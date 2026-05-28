@@ -31,17 +31,62 @@ export const goalService = {
     if (!supabase) throw new Error("auth_required");
     const { data: userData, error: userError } = await supabase.auth.getUser();
     if (userError || !userData.user) throw new Error("auth_required");
-    const { error } = await supabase.from("goals").upsert(
-      {
-        user_id: userData.user.id,
-        year,
-        goal_type: goalType,
-        target_number: targetNumber,
-        current_number: currentNumber,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: "user_id,year,goal_type" },
-    );
-    if (error) throw error;
+    await ensureProfileForUser(userData.user);
+    const goalRow = {
+      user_id: userData.user.id,
+      year,
+      goal_type: goalType,
+      target_number: targetNumber,
+      current_number: currentNumber,
+      updated_at: new Date().toISOString(),
+    };
+    const { data: existingGoal, error: lookupError } = await supabase
+      .from("goals")
+      .select("id")
+      .eq("user_id", userData.user.id)
+      .eq("year", year)
+      .eq("goal_type", goalType)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (lookupError) {
+      console.error("Book Parlor goal lookup failed", lookupError);
+      throw new Error("goal_save_failed");
+    }
+
+    const { error } = existingGoal
+      ? await supabase.from("goals").update(goalRow).eq("id", existingGoal.id)
+      : await supabase.from("goals").insert(goalRow);
+    if (error) {
+      console.error("Book Parlor goal save failed", error);
+      throw new Error("goal_save_failed");
+    }
   },
 };
+
+async function ensureProfileForUser(user: { id: string; email?: string | null; user_metadata?: Record<string, any> }) {
+  if (!supabase) return;
+  const { data: profile, error: lookupError } = await supabase.from("profiles").select("id").eq("id", user.id).maybeSingle();
+  if (lookupError) {
+    console.error("Book Parlor goal profile lookup failed", lookupError);
+    throw new Error("goal_save_failed");
+  }
+  if (profile) return;
+
+  const metadata = user.user_metadata ?? {};
+  const fallbackName = sanitizeUsername(user.email?.split("@")[0] ?? "reader");
+  const username = sanitizeUsername(metadata.username ?? fallbackName);
+  const { error } = await supabase.from("profiles").insert({
+    id: user.id,
+    username,
+    display_name: metadata.display_name ?? username,
+  });
+  if (error) {
+    console.error("Book Parlor goal profile creation failed", error);
+    throw new Error("goal_save_failed");
+  }
+}
+
+function sanitizeUsername(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "") || "reader";
+}

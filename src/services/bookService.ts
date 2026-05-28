@@ -148,7 +148,7 @@ function mapBookRow(row: any): Book {
     pageCount: row.page_count,
     publisher: row.publisher,
     publishedYear: row.published_year,
-    categories: row.categories ?? [],
+    categories: row.categories ?? row.external_categories ?? [],
     language: row.language,
     source: row.source ?? "manual",
     externalAverageRating: row.external_average_rating === null || row.external_average_rating === undefined ? undefined : Number(row.external_average_rating),

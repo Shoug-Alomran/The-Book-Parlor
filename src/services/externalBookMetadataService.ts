@@ -127,9 +127,9 @@ export const externalBookMetadataService = {
       id: isUuid(book.id) ? book.id : stableUuid(`${book.source}:${book.externalId ?? book.isbn13 ?? book.title}`),
     });
     if (!supabase) return enriched;
-    const { error } = await supabase.from("books").upsert(bookToBookRow(enriched));
+    const { error } = await supabase.from("books").upsert(bookToLiveBookRow(enriched));
     if (error) {
-      const fallback = await supabase.from("books").upsert(bookToBaseBookRow(enriched));
+      const fallback = await supabase.from("books").upsert(bookToRequiredBookRow(enriched));
       if (fallback.error) {
         console.error("Book Parlor book metadata save failed", error, fallback.error);
         throw new Error("book_save_failed");
@@ -163,17 +163,22 @@ function cacheBooks(books: Book[]) {
 }
 
 export function bookToBookRow(book: Book) {
+  return bookToLiveBookRow(book);
+}
+
+export function bookToLiveBookRow(book: Book) {
   return {
     id: book.id,
-    external_id: book.externalId,
     google_books_id: book.googleBooksId,
     openlibrary_work_key: book.openlibraryWorkKey,
     openlibrary_edition_key: book.openlibraryEditionKey,
-    external_subjects: book.externalSubjects ?? [],
     external_average_rating: book.externalAverageRating,
     external_ratings_count: book.externalRatingsCount,
     external_rating_source: book.externalRatingSource,
+    external_categories: book.categories ?? [],
+    external_subjects: book.externalSubjects ?? book.categories ?? [],
     imported_metadata: book.importedMetadata ?? {},
+    metadata_last_synced_at: new Date().toISOString(),
     title: book.title,
     subtitle: book.subtitle,
     authors: book.authors,
@@ -184,16 +189,16 @@ export function bookToBookRow(book: Book) {
     page_count: book.pageCount,
     publisher: book.publisher,
     published_year: book.publishedYear,
-    categories: book.categories,
     language: book.language,
     source: book.source,
-    tropes: book.tropes,
-    moods: book.moods,
-    content_warnings: book.contentWarnings ?? [],
   };
 }
 
 export function bookToBaseBookRow(book: Book) {
+  return bookToRequiredBookRow(book);
+}
+
+export function bookToRequiredBookRow(book: Book) {
   return {
     id: book.id,
     title: book.title,
@@ -206,7 +211,6 @@ export function bookToBaseBookRow(book: Book) {
     page_count: book.pageCount,
     publisher: book.publisher,
     published_year: book.publishedYear,
-    categories: book.categories,
     language: book.language,
     source: book.source,
   };
