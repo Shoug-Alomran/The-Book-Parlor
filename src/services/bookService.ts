@@ -109,12 +109,36 @@ export const bookService = {
       .select("*, books(*)")
       .single();
     if (error) {
+      if (updates.selectedEdition?.databaseId && isMissingColumnError(error)) {
+        const withoutEditionId = { ...row };
+        delete withoutEditionId.edition_id;
+        const retry = await supabase
+          .from("user_books")
+          .update(withoutEditionId)
+          .eq("id", userBookId)
+          .eq("user_id", userData.user.id)
+          .select("*, books(*)")
+          .single();
+        if (!retry.error) return mapUserBookRow(retry.data);
+        if (isMissingColumnError(retry.error)) {
+          console.error("Book Parlor edition columns missing", error, retry.error);
+          throw new Error("edition_schema_missing");
+        }
+      }
+      if (isMissingColumnError(error)) {
+        console.error("Book Parlor user book schema missing", error);
+        throw new Error("edition_schema_missing");
+      }
       console.error("Book Parlor user book update failed", error);
       throw new Error("library_update_failed");
     }
     return mapUserBookRow(data);
   },
 };
+
+function isMissingColumnError(error: { code?: string; message?: string }) {
+  return error.code === "42703" || /column .* does not exist/i.test(error.message ?? "");
+}
 
 async function ensureProfileForUser(user: { id: string; email?: string | null; user_metadata?: Record<string, any> }) {
   if (!supabase) return;

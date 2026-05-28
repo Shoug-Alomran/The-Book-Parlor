@@ -110,7 +110,10 @@ export function BookDetailPage() {
       showToast("Your saved edition was updated.", "success");
     } catch (error) {
       console.error("Book Parlor edition switch failed", error);
-      showToast("We could not switch editions just now.", "error");
+      const message = error instanceof Error && error.message === "edition_schema_missing"
+        ? "Edition switching needs the latest Supabase migrations applied."
+        : "We could not switch editions just now.";
+      showToast(message, "error");
     } finally {
       setSwitchingEditionId(undefined);
     }

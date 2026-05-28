@@ -14,11 +14,13 @@ const empty: BookAIEnrichment = {
 export const bookAIService = {
   async inferMetadata(book: Book): Promise<BookAIEnrichment> {
     try {
-      const response = await fetch("/api/enrich-book", {
+      const response = await fetch("/api/ai/enrich-book", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          book_id: book.id,
           title: book.title,
+          author: book.authors.join(", "),
           authors: book.authors,
           description: hasUsefulDescription(book.description) ? book.description : "",
           categories: book.categories,
@@ -36,40 +38,47 @@ export const bookAIService = {
 
 function normalizeAIResponse(payload: unknown): BookAIEnrichment {
   const source = typeof payload === "object" && payload ? payload as Record<string, unknown> : {};
+  const confidence = typeof source.confidence === "object" && source.confidence ? source.confidence as Record<string, unknown> : {};
   return {
     ...empty,
-    genres: normalizeList(source.genres),
-    tropes: normalizeList(source.tropes),
-    moods: normalizeList(source.moods),
-    content_warnings: normalizeList(source.content_warnings),
-    season_vibes: normalizeList(source.season_vibes),
-    standalone_or_series: normalizeOne(source.standalone_or_series),
-    series_type: normalizeOne(source.series_type),
-    likely_pov_type: normalizeOne(source.likely_pov_type),
-    likely_pov_count: normalizeOne(source.likely_pov_count),
-    hype_rating_suggestion: normalizeOne(source.hype_rating_suggestion),
-    rating_genre_suggestion: normalizeOne(source.rating_genre_suggestion),
-    reading_vibe: normalizeOne(source.reading_vibe),
-    book_parlor_summary: normalizeOne(source.book_parlor_summary),
-    similar_books: normalizeList(source.similar_books),
-    suggested_rating_template: normalizeOne(source.suggested_rating_template),
+    tropes: normalizeList(source.tropes, "tropes", confidence),
+    moods: normalizeList(source.moods, "moods", confidence),
+    content_warnings: normalizeList(source.content_warnings, "content_warnings", confidence),
+    season_vibes: normalizeList(source.season_vibes, "season_vibes", confidence),
+    likely_pov_type: normalizeOne(source.pov_type ?? source.likely_pov_type, "pov_type", confidence),
+    likely_pov_count: normalizeOne(source.pov_count ?? source.likely_pov_count, "pov_count", confidence),
+    rating_genre_suggestion: normalizeOne(source.rating_genre_suggestion, "rating_genre_suggestion", confidence),
+    reading_vibe: normalizeOne(source.reading_vibe, "reading_vibe", confidence),
+    book_parlor_summary: normalizeOne(source.short_summary ?? source.book_parlor_summary, "short_summary", confidence),
+    similar_books: normalizeList(source.similar_books, "similar_books", confidence),
+    suggested_rating_template: normalizeOne(source.rating_genre_suggestion ?? source.suggested_rating_template, "rating_genre_suggestion", confidence),
   };
 }
 
-function normalizeList(value: unknown): InferredMetadataValue[] {
+function normalizeList(value: unknown, fieldName = "", confidence: Record<string, unknown> = {}): InferredMetadataValue[] {
   if (!Array.isArray(value)) return [];
-  return value.map(normalizeOne).filter(Boolean) as InferredMetadataValue[];
+  return value.map((item) => normalizeOne(item, fieldName, confidence)).filter(Boolean) as InferredMetadataValue[];
 }
 
-function normalizeOne(value: unknown): InferredMetadataValue | undefined {
+function normalizeOne(value: unknown, fieldName = "", confidence: Record<string, unknown> = {}): InferredMetadataValue | undefined {
   if (!value) return undefined;
-  if (typeof value === "string") return inferred(value, 0.45);
+  if (typeof value === "string") return inferred(value, confidenceFor(fieldName, value, confidence));
   if (typeof value !== "object") return undefined;
   const object = value as Record<string, unknown>;
   const text = String(object.value ?? "").trim();
   if (!text) return undefined;
-  const confidence = typeof object.confidence === "number" ? object.confidence : 0.5;
-  return inferred(text, confidence);
+  const itemConfidence = typeof object.confidence === "number" ? object.confidence : confidenceFor(fieldName, text, confidence);
+  return inferred(text, itemConfidence);
+}
+
+function confidenceFor(fieldName: string, value: string, confidence: Record<string, unknown>) {
+  const fieldConfidence = confidence[fieldName];
+  if (typeof fieldConfidence === "number") return fieldConfidence;
+  if (fieldConfidence && typeof fieldConfidence === "object") {
+    const direct = (fieldConfidence as Record<string, unknown>)[value];
+    if (typeof direct === "number") return direct;
+  }
+  return 0.45;
 }
 
 function inferCautiously(book: Book): BookAIEnrichment {

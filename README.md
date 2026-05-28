@@ -46,7 +46,7 @@ OPENAI_MODEL=gpt-4.1-mini
 
 The app requires Supabase credentials for account and library persistence. Google Books search works without an API key where the public API allows it, and `VITE_GOOGLE_BOOKS_API_KEY` can be added for more reliable metadata requests.
 
-`OPENAI_API_KEY` must only be configured on the backend/serverless environment. Do not expose it as a `VITE_` variable. The frontend calls `/api/enrich-book`, and that endpoint calls the AI model.
+`OPENAI_API_KEY` must only be configured on the backend/serverless environment. Do not expose it as a `VITE_` variable. The frontend calls `/api/ai/enrich-book`, and that endpoint calls the AI model.
 
 ## Supabase
 
