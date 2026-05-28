@@ -3,13 +3,18 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { CommentsSection } from "../components/CommentsSection";
 import { PageHeader } from "../components/PageHeader";
+import { ReadingStatusControls } from "../components/ReadingStatusControls";
 import { ReviewsSection } from "../components/ReviewsSection";
 import { TropeChips } from "../components/TropeChips";
+import { AISuggestionsPanel } from "../components/books/AISuggestionsPanel";
+import { EditionDetailsCard } from "../components/books/EditionDetailsCard";
+import { MetadataStatusCard } from "../components/books/MetadataStatusCard";
 import { bookService } from "../services/bookService";
+import { bookEnrichmentService } from "../services/bookEnrichmentService";
 import { communityRatingService, type CommunityRatingBreakdown } from "../services/communityRatingService";
 import { commentService } from "../services/commentService";
 import { reviewService } from "../services/reviewService";
-import type { Book, Comment, Review } from "../types";
+import type { Book, BookAISuggestion, Comment, Review, UserBook } from "../types";
 
 export function BookDetailPage() {
   const { bookId = "" } = useParams();
@@ -17,11 +22,16 @@ export function BookDetailPage() {
   const [book, setBook] = useState<Book>();
   const [reviews, setReviews] = useState<Review[]>([]);
   const [comments, setComments] = useState<Comment[]>([]);
+  const [userBook, setUserBook] = useState<UserBook>();
+  const [aiSuggestions, setAISuggestions] = useState<BookAISuggestion[]>([]);
   const [ratingBreakdown, setRatingBreakdown] = useState<CommunityRatingBreakdown>({ type: "none", sourceLabel: "No ratings yet" });
   const [toast, setToast] = useState<{ text: string; tone: "success" | "error" } | null>(null);
   const [savingAction, setSavingAction] = useState<"shelf" | "purchased" | null>(null);
+  const [enriching, setEnriching] = useState(false);
   useEffect(() => {
     bookService.getBook(bookId).then(setBook);
+    bookService.getUserBookForBook(bookId).then(setUserBook).catch(() => setUserBook(undefined));
+    bookEnrichmentService.listAISuggestions(bookId).then(setAISuggestions);
     communityRatingService.getCommunityRatingBreakdown(bookId).then(setRatingBreakdown).catch(() => setRatingBreakdown({ type: "none", sourceLabel: "No ratings yet" }));
     reviewService.listForBook(bookId).then(setReviews);
     commentService.listForBook(bookId).then(setComments);
@@ -31,10 +41,11 @@ export function BookDetailPage() {
     if (!book) return;
     try {
       setSavingAction(action);
-      await bookService.saveBook(book, {
+      const savedBook = await bookService.saveBook(book, {
         readingStatus: action === "shelf" ? "Want to Read" : undefined,
         ownershipStatus: action === "purchased" ? "Purchased / Physically Owned" : undefined,
       });
+      bookService.getUserBookForBook(savedBook.id).then(setUserBook).catch(() => setUserBook(undefined));
       showToast(action === "purchased" ? "Marked as purchased and added to your library." : "Added to your Want to Read shelf.", "success");
     } catch (error) {
       const code = error instanceof Error ? error.message : "save_failed";
@@ -59,6 +70,46 @@ export function BookDetailPage() {
     window.setTimeout(() => setToast(null), 3000);
   };
 
+  const enrichBook = async () => {
+    if (!book) return;
+    try {
+      setEnriching(true);
+      const result = await bookEnrichmentService.enrichBook(book);
+      setBook(result.book);
+      setAISuggestions(result.suggestions);
+      showToast("Book details enriched. Review the AI suggestions before accepting them.", "success");
+    } catch (error) {
+      console.error("Book Parlor enrichment failed", error);
+      showToast("We could not enrich this book just now. Please try again.", "error");
+    } finally {
+      setEnriching(false);
+    }
+  };
+
+  const acceptAISuggestions = async () => {
+    if (!book) return;
+    try {
+      const next = await bookEnrichmentService.acceptAISuggestions(book, aiSuggestions);
+      setBook(next);
+      setAISuggestions([]);
+      showToast("AI suggestions accepted into this book profile.", "success");
+    } catch (error) {
+      console.error("Book Parlor AI suggestion accept failed", error);
+      showToast("We could not accept those suggestions just now.", "error");
+    }
+  };
+
+  const rejectAISuggestions = async () => {
+    try {
+      await bookEnrichmentService.rejectAISuggestions(aiSuggestions);
+      setAISuggestions([]);
+      showToast("AI suggestions rejected.", "success");
+    } catch (error) {
+      console.error("Book Parlor AI suggestion reject failed", error);
+      showToast("We could not reject those suggestions just now.", "error");
+    }
+  };
+
   if (!book) return <PageHeader title="Book not found" description="Try searching for it, then add it to your parlor." />;
 
   return (
@@ -69,7 +120,7 @@ export function BookDetailPage() {
           {toast.tone === "error" && toast.text.startsWith("Sign in") && <button type="button" onClick={() => navigate("/auth")} className="ml-3 underline">Sign in</button>}
         </div>
       )}
-      <PageHeader eyebrow="Book detail" title={book.title} description={book.authors.join(", ")} action={<Link to={`/books/${book.id}/rate`} className="btn-primary"><Star size={18} />Rate this book</Link>} />
+      <PageHeader eyebrow="Book detail" title={book.title} description={book.authors.join(", ")} action={<div className="flex flex-wrap gap-2"><button type="button" onClick={enrichBook} disabled={enriching} className="btn-soft">{enriching ? "Enriching..." : "Enrich book details"}</button><Link to={`/books/${book.id}/rate`} className="btn-primary"><Star size={18} />Rate this book</Link></div>} />
       <section className="grid gap-6 lg:grid-cols-[300px_1fr]">
         <div className="cozy-card">
           <img src={book.coverUrl} alt={`${book.title} cover`} className="aspect-[2/3] w-full rounded-2xl object-cover shadow-2xl" />
@@ -79,13 +130,28 @@ export function BookDetailPage() {
           </div>
         </div>
         <div className="grid gap-5">
+          <MetadataStatusCard book={book} loading={enriching} hasAISuggestions={aiSuggestions.length > 0 || Boolean(book.aiSummary)} onEnrich={enrichBook} />
           <section className="cozy-card">
             <div className="mb-4 grid gap-3 sm:grid-cols-3">
               <span className="chip"><Star size={14} />{ratingSummaryLabel(ratingBreakdown)}</span>
               <span className="chip"><MessageCircle size={14} />{reviews.length + comments.length} discussions</span>
               <span className="chip">{book.pageCount ?? "Unknown"} pages</span>
             </div>
-            <p className="leading-8 text-espresso/75 dark:text-cream/75">{book.description}</p>
+            {hasUsefulDescription(book.description) ? (
+              <p className="leading-8 text-espresso/75 dark:text-cream/75">{book.description}</p>
+            ) : (
+              <div className="rounded-2xl bg-gold/15 p-4">
+                <h3 className="font-serif text-2xl font-bold">Description missing</h3>
+                <p className="mt-2 text-espresso/70 dark:text-cream/70">Try enriching this book to fetch a real description from Google Books or Open Library.</p>
+                <button type="button" onClick={enrichBook} disabled={enriching} className="btn-primary mt-4">{enriching ? "Enriching..." : "Enrich book details"}</button>
+              </div>
+            )}
+            {book.aiSummary && (
+              <div className="mt-4 rounded-2xl bg-white/55 p-4 dark:bg-white/10">
+                <div className="mb-1 text-xs font-black uppercase tracking-[0.18em] text-mocha/70 dark:text-gold">AI-suggested summary</div>
+                <p className="leading-7 text-espresso/75 dark:text-cream/75">{book.aiSummary}</p>
+              </div>
+            )}
             <div className="mt-5 grid gap-4">
               <div><h3 className="mb-2 font-bold">Genres</h3><TropeChips items={book.categories} /></div>
               <div><h3 className="mb-2 font-bold">Tropes</h3><TropeChips items={book.tropes} /></div>
@@ -93,7 +159,10 @@ export function BookDetailPage() {
               <div><h3 className="mb-2 font-bold">Content warnings</h3><TropeChips items={book.contentWarnings ?? []} tone="warning" /></div>
             </div>
           </section>
+          <EditionDetailsCard book={book} />
+          <AISuggestionsPanel suggestions={aiSuggestions} onAccept={acceptAISuggestions} onReject={rejectAISuggestions} />
           <RatingBreakdownCard breakdown={ratingBreakdown} bookId={book.id} />
+          {userBook && <ReadingStatusControls userBook={userBook} onChange={setUserBook} />}
         </div>
       </section>
       <div className="mt-6 grid gap-5 lg:grid-cols-2">
@@ -102,6 +171,10 @@ export function BookDetailPage() {
       </div>
     </div>
   );
+}
+
+function hasUsefulDescription(description?: string) {
+  return Boolean(description && description.trim() && description !== "No description is available yet.");
 }
 
 function RatingBreakdownCard({ breakdown, bookId }: { breakdown: CommunityRatingBreakdown; bookId: string }) {

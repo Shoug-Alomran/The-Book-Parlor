@@ -4,6 +4,7 @@ import { Link, useParams } from "react-router-dom";
 import { GenreRatingTemplate } from "../components/GenreRatingTemplate";
 import { PageHeader } from "../components/PageHeader";
 import { ProgressBar } from "../components/ProgressBar";
+import { ReadingStatusControls } from "../components/ReadingStatusControls";
 import { TropeChips } from "../components/TropeChips";
 import { tropes as knownTropes } from "../data/constants";
 import { ratingGenres } from "../data/ratingTemplates";
@@ -145,13 +146,12 @@ export function RatingPage() {
               <h2 className="font-serif text-3xl font-bold">{userBook.book.title}</h2>
               <p className="mt-2 font-semibold text-mocha/70 dark:text-cream/65">{userBook.readingStatus}</p>
               <div className="mt-5"><ProgressBar value={progress} label={`${userBook.currentPage} of ${userBook.book.pageCount ?? "?"} pages`} /></div>
-              <div className="mt-5 grid gap-3 sm:grid-cols-2">
-                <input placeholder="Current page" className="rounded-2xl border-0 bg-white/70 p-3 outline-none dark:bg-white/10" />
-                <input placeholder="Session notes" className="rounded-2xl border-0 bg-white/70 p-3 outline-none dark:bg-white/10" />
-              </div>
             </div>
           </div>
         </section>
+        <div className="mt-5 max-w-3xl">
+          <ReadingStatusControls userBook={userBook} onChange={setUserBook} />
+        </div>
       </div>
     );
   }

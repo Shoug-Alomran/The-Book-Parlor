@@ -2,6 +2,7 @@ import { isUuid } from "../lib/ids";
 import { supabase } from "../lib/supabase";
 import type { Book, OwnershipStatus, ReadingStatus, UserBook } from "../types";
 import { externalBookMetadataService, getCachedExternalBook } from "./externalBookMetadataService";
+import { bookEnrichmentService } from "./bookEnrichmentService";
 
 export const bookService = {
   async searchBooks(query: string): Promise<Book[]> {
@@ -82,7 +83,33 @@ export const bookService = {
       console.error("Book Parlor save failed at user_books upsert", userBookError);
       throw new Error("library_save_failed");
     }
+    bookEnrichmentService.enrichBook(enriched).catch((error) => console.warn("Book Parlor background enrichment skipped", error));
     return enriched;
+  },
+
+  async updateUserBook(userBookId: string, updates: { readingStatus?: ReadingStatus; currentPage?: number; finishDate?: string | null; startDate?: string | null }) {
+    if (!supabase) throw new Error("auth_required");
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData.user) throw new Error("auth_required");
+
+    const row: Record<string, unknown> = { updated_at: new Date().toISOString() };
+    if (updates.readingStatus) row.reading_status = updates.readingStatus;
+    if (updates.currentPage !== undefined) row.current_page = updates.currentPage;
+    if (updates.startDate !== undefined) row.start_date = updates.startDate;
+    if (updates.finishDate !== undefined) row.finish_date = updates.finishDate;
+
+    const { data, error } = await supabase
+      .from("user_books")
+      .update(row)
+      .eq("id", userBookId)
+      .eq("user_id", userData.user.id)
+      .select("*, books(*)")
+      .single();
+    if (error) {
+      console.error("Book Parlor user book update failed", error);
+      throw new Error("library_update_failed");
+    }
+    return mapUserBookRow(data);
   },
 };
 
@@ -132,6 +159,8 @@ function dedupeBooks(books: Book[]) {
 }
 
 function mapBookRow(row: any): Book {
+  const importedMetadata = row.imported_metadata ?? {};
+  const acceptedAI = importedMetadata.accepted_ai_suggestions ?? importedMetadata.ai_enrichment ?? {};
   return {
     id: row.id,
     externalId: row.external_id,
@@ -148,18 +177,23 @@ function mapBookRow(row: any): Book {
     pageCount: row.page_count,
     publisher: row.publisher,
     publishedYear: row.published_year,
-    categories: row.categories ?? row.external_categories ?? [],
+    categories: mergeMetadataValues(row.categories ?? row.external_categories ?? [], acceptedAI.genres),
     language: row.language,
     source: row.source ?? "manual",
     externalAverageRating: row.external_average_rating === null || row.external_average_rating === undefined ? undefined : Number(row.external_average_rating),
     externalRatingsCount: row.external_ratings_count ?? undefined,
     externalRatingSource: row.external_rating_source ?? undefined,
     externalSubjects: row.external_subjects ?? [],
-    importedMetadata: row.imported_metadata ?? {},
-    tropes: row.tropes ?? [],
-    moods: row.moods ?? [],
-    contentWarnings: row.content_warnings ?? [],
+    importedMetadata,
+    aiSummary: row.ai_summary,
+    tropes: mergeMetadataValues(row.tropes ?? [], acceptedAI.tropes),
+    moods: mergeMetadataValues(row.moods ?? [], acceptedAI.moods),
+    contentWarnings: mergeMetadataValues(row.content_warnings ?? [], acceptedAI.content_warnings),
   };
+}
+
+function mergeMetadataValues(existing: string[], inferred?: Array<{ value?: string }>) {
+  return Array.from(new Set([...(existing ?? []), ...((inferred ?? []).map((item) => item.value).filter(Boolean) as string[])]));
 }
 
 function mapUserBookRow(row: any): UserBook {

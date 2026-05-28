@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { BookCard } from "../components/BookCard";
 import { PageHeader } from "../components/PageHeader";
+import { ReadingStatusControls } from "../components/ReadingStatusControls";
 import { ownershipStatuses, readingStatuses } from "../data/constants";
 import { bookService } from "../services/bookService";
 import type { OwnershipStatus, ReadingStatus, UserBook } from "../types";
@@ -26,7 +27,16 @@ export function MyBooksPage() {
         </select>
       </div>
       <div className="grid gap-4 xl:grid-cols-2">
-        {filtered.map((book) => <BookCard key={book.id} item={book} />)}
+        {filtered.map((book) => (
+          <div key={book.id} className="grid gap-3">
+            <BookCard item={book} />
+            <ReadingStatusControls
+              userBook={book}
+              compact
+              onChange={(nextBook) => setBooks((currentBooks) => currentBooks.map((item) => item.id === nextBook.id ? nextBook : item))}
+            />
+          </div>
+        ))}
       </div>
       {!filtered.length && (
         <section className="cozy-card mt-5 text-center">

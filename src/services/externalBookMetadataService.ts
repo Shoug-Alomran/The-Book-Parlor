@@ -5,6 +5,7 @@ import { tropeDetectionService } from "./tropeDetectionService";
 
 const GOOGLE_BOOKS_URL = "https://www.googleapis.com/books/v1/volumes";
 const OPEN_LIBRARY_SEARCH_URL = "https://openlibrary.org/search.json";
+const OPEN_LIBRARY_ISBN_URL = "https://openlibrary.org/isbn";
 
 type GoogleVolume = {
   id: string;
@@ -33,6 +34,13 @@ export const externalBookMetadataService = {
     return book;
   },
 
+  async findBestGoogleBook(book: Book): Promise<Book | undefined> {
+    if (book.googleBooksId) return this.fetchGoogleBookById(book.googleBooksId);
+    const isbn = book.isbn13 ?? book.isbn10;
+    const query = isbn ? `isbn:${isbn}` : `${book.title} ${book.authors[0] ?? ""}`;
+    return (await this.searchGoogleBooks(query))[0];
+  },
+
   async searchOpenLibrary(query: string): Promise<Book[]> {
     if (!query.trim()) return [];
     const response = await fetch(`${OPEN_LIBRARY_SEARCH_URL}?q=${encodeURIComponent(query)}&limit=12`);
@@ -41,6 +49,22 @@ export const externalBookMetadataService = {
     const books = (data.docs ?? []).map((result: any) => this.normalizeOpenLibraryBook(result)).filter((book: Book) => book.title);
     cacheBooks(books);
     return books;
+  },
+
+  async fetchOpenLibraryByIsbn(isbn: string): Promise<Book | undefined> {
+    const response = await fetch(`${OPEN_LIBRARY_ISBN_URL}/${encodeURIComponent(isbn)}.json`);
+    if (!response.ok) return undefined;
+    const data = await response.json();
+    return this.normalizeOpenLibraryEdition(data);
+  },
+
+  async findBestOpenLibraryBook(book: Book): Promise<Book | undefined> {
+    const isbn = book.isbn13 ?? book.isbn10;
+    if (isbn) {
+      const edition = await this.fetchOpenLibraryByIsbn(isbn);
+      if (edition) return edition;
+    }
+    return (await this.searchOpenLibrary(`${book.title} ${book.authors[0] ?? ""}`))[0];
   },
 
   normalizeGoogleBook(volume: GoogleVolume): Book {
@@ -121,6 +145,88 @@ export const externalBookMetadataService = {
     });
   },
 
+  normalizeOpenLibraryEdition(result: any): Book {
+    const isbn13 = result.isbn_13?.[0];
+    const isbn10 = result.isbn_10?.[0];
+    const workKey = result.works?.[0]?.key;
+    const publishedYear = result.publish_date ? Number(String(result.publish_date).match(/\d{4}/)?.[0]) : undefined;
+    return tropeDetectionService.enrichBook({
+      id: stableUuid(`open_library:${result.key ?? isbn13 ?? isbn10 ?? result.title}`),
+      externalId: result.key ?? isbn13 ?? isbn10 ?? result.title,
+      openlibraryWorkKey: workKey,
+      openlibraryEditionKey: result.key,
+      title: result.title ?? "Untitled book",
+      authors: ["Unknown author"],
+      description: result.description?.value ?? result.description ?? "No description is available yet.",
+      coverUrl: result.covers?.[0] ? `https://covers.openlibrary.org/b/id/${result.covers[0]}-L.jpg` : undefined,
+      isbn10,
+      isbn13,
+      pageCount: result.number_of_pages,
+      publisher: result.publishers?.[0],
+      publishedYear,
+      categories: result.subjects?.slice(0, 8) ?? [],
+      language: result.languages?.[0]?.key?.replace("/languages/", ""),
+      source: "open_library",
+      externalSubjects: result.subjects?.slice(0, 24) ?? [],
+      importedMetadata: {
+        openlibraryWorkKey: workKey,
+        openlibraryEditionKey: result.key,
+        editionName: result.edition_name,
+        publishDate: result.publish_date,
+        numberOfPages: result.number_of_pages,
+        subjects: result.subjects?.slice(0, 24),
+        source: "open_library",
+      },
+      tropes: [],
+      moods: [],
+    });
+  },
+
+  mergeBestMetadata(current: Book, google?: Book, openLibrary?: Book): { book: Book; sources: Array<"google_books" | "open_library">; pageCountVariesByEdition: boolean } {
+    const sources: Array<"google_books" | "open_library"> = [];
+    if (google) sources.push("google_books");
+    if (openLibrary) sources.push("open_library");
+    const openLibraryPageCount = openLibrary?.pageCount;
+    const googlePageCount = google?.pageCount;
+    return {
+      sources,
+      pageCountVariesByEdition: Boolean(googlePageCount && openLibraryPageCount && googlePageCount !== openLibraryPageCount),
+      book: {
+        ...current,
+        title: firstText(google?.title, openLibrary?.title, current.title) ?? current.title,
+        subtitle: firstText(google?.subtitle, current.subtitle, openLibrary?.subtitle),
+        authors: firstArray(google?.authors, current.authors, openLibrary?.authors),
+        description: firstUsefulDescription(google?.description, openLibrary?.description, current.description) ?? "No description is available yet.",
+        coverUrl: firstText(google?.coverUrl, openLibrary?.coverUrl, current.coverUrl),
+        isbn10: firstText(google?.isbn10, openLibrary?.isbn10, current.isbn10),
+        isbn13: firstText(google?.isbn13, openLibrary?.isbn13, current.isbn13),
+        pageCount: google?.pageCount ?? openLibrary?.pageCount ?? current.pageCount,
+        publisher: firstText(google?.publisher, openLibrary?.publisher, current.publisher),
+        publishedYear: google?.publishedYear ?? openLibrary?.publishedYear ?? current.publishedYear,
+        categories: firstArray(google?.categories, current.categories, openLibrary?.categories),
+        language: firstText(google?.language, openLibrary?.language, current.language),
+        source: google ? "google_books" : openLibrary ? "open_library" : current.source,
+        googleBooksId: google?.googleBooksId ?? current.googleBooksId,
+        openlibraryWorkKey: openLibrary?.openlibraryWorkKey ?? current.openlibraryWorkKey,
+        openlibraryEditionKey: openLibrary?.openlibraryEditionKey ?? current.openlibraryEditionKey,
+        externalAverageRating: google?.externalAverageRating ?? current.externalAverageRating,
+        externalRatingsCount: google?.externalRatingsCount ?? current.externalRatingsCount,
+        externalRatingSource: google?.externalRatingSource ?? current.externalRatingSource,
+        externalSubjects: Array.from(new Set([...(current.externalSubjects ?? []), ...(google?.externalSubjects ?? []), ...(openLibrary?.externalSubjects ?? [])])),
+        importedMetadata: {
+          ...(current.importedMetadata ?? {}),
+          google_books: google?.importedMetadata,
+          open_library: openLibrary?.importedMetadata,
+          enrichment_sources: sources,
+          page_count_varies_by_edition: Boolean(googlePageCount && openLibraryPageCount && googlePageCount !== openLibraryPageCount),
+        },
+        tropes: current.tropes,
+        moods: current.moods,
+        contentWarnings: current.contentWarnings,
+      },
+    };
+  },
+
   async upsertBookFromExternalMetadata(book: Book): Promise<Book> {
     const enriched = tropeDetectionService.enrichBook({
       ...book,
@@ -138,6 +244,18 @@ export const externalBookMetadataService = {
     return enriched;
   },
 };
+
+function firstText(...values: Array<string | undefined>) {
+  return values.find((value) => value && value.trim());
+}
+
+function firstArray(...values: Array<string[] | undefined>) {
+  return values.find((value) => value?.length) ?? [];
+}
+
+function firstUsefulDescription(...values: Array<string | undefined>) {
+  return values.find((value) => value && value.trim() && value !== "No description is available yet.");
+}
 
 export function getCachedExternalBook(bookId: string): Book | undefined {
   if (typeof window === "undefined") return undefined;
@@ -178,6 +296,7 @@ export function bookToLiveBookRow(book: Book) {
     external_categories: book.categories ?? [],
     external_subjects: book.externalSubjects ?? book.categories ?? [],
     imported_metadata: book.importedMetadata ?? {},
+    ai_summary: book.aiSummary,
     metadata_last_synced_at: new Date().toISOString(),
     title: book.title,
     subtitle: book.subtitle,

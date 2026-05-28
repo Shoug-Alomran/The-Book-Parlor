@@ -50,9 +50,55 @@ export type Book = {
   externalRatingSource?: "google_books";
   externalSubjects?: string[];
   importedMetadata?: Record<string, unknown>;
+  aiSummary?: string;
   tropes: string[];
   moods: string[];
   contentWarnings?: string[];
+};
+
+export type InferredMetadataValue = {
+  value: string;
+  confidence: number;
+  source: "ai_inferred";
+};
+
+export type BookAIEnrichment = {
+  genres: InferredMetadataValue[];
+  tropes: InferredMetadataValue[];
+  moods: InferredMetadataValue[];
+  content_warnings: InferredMetadataValue[];
+  season_vibes: InferredMetadataValue[];
+  standalone_or_series?: InferredMetadataValue;
+  series_type?: InferredMetadataValue;
+  likely_pov_type?: InferredMetadataValue;
+  likely_pov_count?: InferredMetadataValue;
+  hype_rating_suggestion?: InferredMetadataValue;
+  rating_genre_suggestion?: InferredMetadataValue;
+  reading_vibe?: InferredMetadataValue;
+  book_parlor_summary?: InferredMetadataValue;
+  similar_books: InferredMetadataValue[];
+  suggested_rating_template?: InferredMetadataValue;
+};
+
+export type BookEnrichmentResult = {
+  book: Book;
+  ai: BookAIEnrichment;
+  suggestions: BookAISuggestion[];
+  factualSources: Array<"google_books" | "open_library">;
+  pageCountVariesByEdition: boolean;
+};
+
+export type BookAISuggestionStatus = "pending" | "accepted" | "rejected";
+
+export type BookAISuggestion = {
+  id: string;
+  bookId: string;
+  userId?: string;
+  fieldName: string;
+  suggestedValue: InferredMetadataValue | InferredMetadataValue[];
+  confidence: number;
+  source: "ai_inferred";
+  status: BookAISuggestionStatus;
 };
 
 export type UserBook = {

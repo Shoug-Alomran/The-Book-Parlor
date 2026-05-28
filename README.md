@@ -40,9 +40,13 @@ Copy `.env.example` to `.env` and add Supabase credentials:
 VITE_SUPABASE_URL=https://your-project.supabase.co
 VITE_SUPABASE_ANON_KEY=your-anon-key
 VITE_GOOGLE_BOOKS_API_KEY=optional-google-books-key
+OPENAI_API_KEY=server-side-only
+OPENAI_MODEL=gpt-4.1-mini
 ```
 
 The app requires Supabase credentials for account and library persistence. Google Books search works without an API key where the public API allows it, and `VITE_GOOGLE_BOOKS_API_KEY` can be added for more reliable metadata requests.
+
+`OPENAI_API_KEY` must only be configured on the backend/serverless environment. Do not expose it as a `VITE_` variable. The frontend calls `/api/enrich-book`, and that endpoint calls the AI model.
 
 ## Supabase
 
@@ -54,6 +58,7 @@ Apply the migrations in order through the Supabase SQL editor or Supabase CLI:
 4. `supabase/migrations/202605280004_external_metadata_and_rating_aggregates.sql`
 5. `supabase/migrations/202605280005_username_login_rpc.sql`
 6. `supabase/migrations/202605280006_goal_upsert_unique.sql`
+7. `supabase/migrations/202605280007_book_ai_suggestions.sql`
 
 The second migration makes the app ready for real use by adding external book IDs, persisted trope/mood arrays, and automatic profile creation after sign up.
 
