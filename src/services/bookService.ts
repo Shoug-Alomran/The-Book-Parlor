@@ -99,6 +99,7 @@ export const bookService = {
     if (updates.startDate !== undefined) row.start_date = updates.startDate;
     if (updates.finishDate !== undefined) row.finish_date = updates.finishDate;
     if (updates.selectedEdition !== undefined) row.selected_edition = updates.selectedEdition;
+    if (updates.selectedEdition?.databaseId) row.edition_id = updates.selectedEdition.databaseId;
 
     const { data, error } = await supabase
       .from("user_books")
@@ -218,6 +219,7 @@ function mapUserBookRow(row: any): UserBook {
     wouldReadAgain: row.would_read_again,
     dnfReason: row.dnf_reason,
     privateNotes: row.private_notes,
+    editionId: row.edition_id,
     selectedEdition: row.selected_edition,
     shelves: [],
   };

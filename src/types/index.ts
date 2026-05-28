@@ -120,6 +120,7 @@ export type UserBook = {
   wouldReadAgain?: boolean;
   dnfReason?: string;
   privateNotes?: string;
+  editionId?: string;
   selectedEdition?: BookEdition;
   shelves: string[];
   rating?: Rating;
@@ -127,6 +128,8 @@ export type UserBook = {
 
 export type BookEdition = {
   id: string;
+  databaseId?: string;
+  bookId?: string;
   editionTitle: string;
   format?: string;
   isbn10?: string;
@@ -218,4 +221,5 @@ export type Bookcase = {
   decor: string[];
   visibility: "public" | "private";
   filterTrope?: string;
+  bookIds?: string[];
 };

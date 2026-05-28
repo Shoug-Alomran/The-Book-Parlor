@@ -9,7 +9,15 @@ export const bookcaseService = {
     if (!userData.user) return defaultBookcases;
     const { data, error } = await supabase.from("bookcases").select("*").order("created_at", { ascending: true });
     if (error) throw error;
-    return [...defaultBookcases, ...(data ?? []).map(mapBookcaseRow)];
+    const caseIds = (data ?? []).map((row: any) => row.id);
+    const { data: links } = caseIds.length
+      ? await supabase.from("bookcase_books").select("bookcase_id, book_id").eq("user_id", userData.user.id).in("bookcase_id", caseIds)
+      : { data: [] };
+    const bookIdsByCase = new Map<string, string[]>();
+    (links ?? []).forEach((link: any) => {
+      bookIdsByCase.set(link.bookcase_id, [...(bookIdsByCase.get(link.bookcase_id) ?? []), link.book_id]);
+    });
+    return [...defaultBookcases, ...(data ?? []).map((row: any) => mapBookcaseRow(row, bookIdsByCase.get(row.id) ?? []))];
   },
   async createBookcase(input: {
     name: string;
@@ -46,6 +54,39 @@ export const bookcaseService = {
     if (error) throw error;
     return mapBookcaseRow(data);
   },
+  async deleteBookcase(bookcaseId: string) {
+    if (!supabase) return;
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData.user) throw new Error("Please log in before deleting a bookcase.");
+    const { error } = await supabase.from("bookcases").delete().eq("id", bookcaseId).eq("user_id", userData.user.id);
+    if (error) throw error;
+  },
+  async addBookToBookcase(bookcaseId: string, bookId: string) {
+    if (!supabase) return;
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData.user) throw new Error("Please log in before adding books.");
+    const { error } = await supabase.from("bookcase_books").upsert(
+      {
+        bookcase_id: bookcaseId,
+        user_id: userData.user.id,
+        book_id: bookId,
+      },
+      { onConflict: "bookcase_id,book_id" },
+    );
+    if (error) throw error;
+  },
+  async removeBookFromBookcase(bookcaseId: string, bookId: string) {
+    if (!supabase) return;
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData.user) throw new Error("Please log in before removing books.");
+    const { error } = await supabase
+      .from("bookcase_books")
+      .delete()
+      .eq("bookcase_id", bookcaseId)
+      .eq("book_id", bookId)
+      .eq("user_id", userData.user.id);
+    if (error) throw error;
+  },
   booksForCase(bookcase: Bookcase, books: UserBook[]) {
     if (bookcase.type === "read") return books.filter((item) => item.readingStatus === "Read");
     if (bookcase.type === "purchased") return books.filter((item) => item.ownershipStatus === "Purchased / Physically Owned");
@@ -53,11 +94,12 @@ export const bookcaseService = {
     if (bookcase.type === "favorites") return books.filter((item) => item.isFavorite);
     if (bookcase.type === "owned-unread") return books.filter((item) => item.ownershipStatus === "Purchased / Physically Owned" && item.readingStatus !== "Read");
     if (bookcase.filterTrope) return books.filter((item) => item.book.tropes.includes(bookcase.filterTrope!));
-    return books;
+    if (bookcase.type === "custom") return books.filter((item) => (bookcase.bookIds ?? []).includes(item.book.id));
+    return [];
   },
 };
 
-function mapBookcaseRow(row: any): Bookcase {
+function mapBookcaseRow(row: any, bookIds: string[] = []): Bookcase {
   return {
     id: row.id,
     name: row.name,
@@ -67,5 +109,6 @@ function mapBookcaseRow(row: any): Bookcase {
     background: row.background ?? "warm plaster",
     decor: Array.isArray(row.decor) ? row.decor : [],
     visibility: row.visibility ?? "private",
+    bookIds,
   };
 }

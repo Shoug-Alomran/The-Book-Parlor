@@ -77,6 +77,25 @@ export const externalBookMetadataService = {
     return (data.entries ?? []).map((entry: any) => normalizeOpenLibraryEditionToEdition(entry)).filter(Boolean);
   },
 
+  async fetchOpenLibraryWork(book: Book): Promise<Partial<Book> | undefined> {
+    if (!book.openlibraryWorkKey) return undefined;
+    const response = await fetch(`${OPEN_LIBRARY_BASE_URL}${book.openlibraryWorkKey}.json`);
+    if (!response.ok) return undefined;
+    const data = await response.json();
+    return {
+      description: data.description?.value ?? data.description,
+      externalSubjects: data.subjects?.slice(0, 40),
+      importedMetadata: {
+        open_library_work: {
+          key: data.key,
+          title: data.title,
+          subjects: data.subjects?.slice(0, 40),
+          description: data.description?.value ?? data.description,
+        },
+      },
+    };
+  },
+
   normalizeGoogleBook(volume: GoogleVolume): Book {
     const info = volume.volumeInfo ?? {};
     const industryIds = info.industryIdentifiers ?? [];
@@ -205,6 +224,7 @@ export const externalBookMetadataService = {
     if (openLibrary) sources.push("open_library");
     const openLibraryPageCount = openLibrary?.pageCount;
     const googlePageCount = google?.pageCount;
+    const series = detectSeriesMetadata(current, google, openLibrary);
     return {
       sources,
       pageCountVariesByEdition: Boolean(googlePageCount && openLibraryPageCount && googlePageCount !== openLibraryPageCount),
@@ -223,6 +243,8 @@ export const externalBookMetadataService = {
         publishedYear: google?.publishedYear ?? openLibrary?.publishedYear ?? current.publishedYear,
         editionTitle: firstText(google?.editionTitle, openLibrary?.editionTitle, current.editionTitle),
         format: firstText(google?.format, openLibrary?.format, current.format),
+        seriesName: series.seriesName ?? current.seriesName,
+        seriesPosition: series.seriesPosition ?? current.seriesPosition,
         categories: firstArray(google?.categories, current.categories, openLibrary?.categories),
         language: firstText(google?.language, openLibrary?.language, current.language),
         source: google ? "google_books" : openLibrary ? "open_library" : current.source,
@@ -264,6 +286,29 @@ export const externalBookMetadataService = {
     return enriched;
   },
 };
+
+function detectSeriesMetadata(...books: Array<Book | undefined>) {
+  const text = books
+    .filter(Boolean)
+    .map((book) => `${book?.title ?? ""} ${book?.subtitle ?? ""} ${book?.description ?? ""} ${JSON.stringify(book?.importedMetadata ?? {})}`)
+    .join(" ");
+  const patterns = [
+    /(.+?)(?:,|\s+)\s*#\s*(\d+(?:\.\d+)?)/i,
+    /(.+?)(?:,|\s+)\s*book\s+(\d+(?:\.\d+)?)/i,
+    /book\s+(\d+(?:\.\d+)?)\s+(?:in|of)\s+the\s+(.+?)\s+series/i,
+  ];
+  for (const pattern of patterns) {
+    const match = text.match(pattern);
+    if (!match) continue;
+    if (pattern.source.startsWith("book")) return { seriesName: cleanSeriesName(match[2]), seriesPosition: match[1] };
+    return { seriesName: cleanSeriesName(match[1]), seriesPosition: match[2] };
+  }
+  return {};
+}
+
+function cleanSeriesName(value?: string) {
+  return value?.replace(/\bseries\b/gi, "").replace(/["()[\]]/g, "").trim();
+}
 
 function firstText(...values: Array<string | undefined>) {
   return values.find((value) => value && value.trim());

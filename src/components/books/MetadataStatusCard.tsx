@@ -4,11 +4,12 @@ import type { Book } from "../../types";
 type Props = {
   book: Book;
   loading?: boolean;
+  failed?: boolean;
   hasAISuggestions?: boolean;
   onEnrich: () => void;
 };
 
-export function MetadataStatusCard({ book, loading = false, hasAISuggestions = false, onEnrich }: Props) {
+export function MetadataStatusCard({ book, loading = false, failed = false, hasAISuggestions = false, onEnrich }: Props) {
   const status = statusFor(book);
   const metadata = book.importedMetadata ?? {};
   const audit = metadata.enrichment_audit as Record<string, unknown> | undefined;
@@ -25,10 +26,12 @@ export function MetadataStatusCard({ book, loading = false, hasAISuggestions = f
               : "This book has enough factual metadata to feel at home in your parlor."}
           </p>
         </div>
-        <button type="button" onClick={onEnrich} disabled={loading} className="btn-primary">
-          <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
-          {loading ? "Enriching..." : "Enrich book details"}
-        </button>
+        {(loading || failed) && (
+          <button type="button" onClick={onEnrich} disabled={loading} className="btn-soft">
+            <RefreshCw size={18} className={loading ? "animate-spin" : ""} />
+            {loading ? "Fetching..." : "Retry metadata fetch"}
+          </button>
+        )}
       </div>
       <div className="mt-4 flex flex-wrap gap-2">
         {sources?.includes("google_books") && <span className="chip">Imported from Google Books</span>}

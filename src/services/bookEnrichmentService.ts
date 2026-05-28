@@ -12,11 +12,22 @@ export const bookEnrichmentService = {
     const google = googleResult.status === "fulfilled" ? googleResult.value : undefined;
     const openLibrary = openLibraryResult.status === "fulfilled" ? openLibraryResult.value : undefined;
     const merged = externalBookMetadataService.mergeBestMetadata(book, google, openLibrary);
-    const ai = await bookAIService.inferMetadata(merged.book);
-    const enriched: Book = {
+    const work = await externalBookMetadataService.fetchOpenLibraryWork(merged.book).catch(() => undefined);
+    const withWork = work ? {
       ...merged.book,
+      description: firstUsefulDescription(merged.book.description, work.description) ?? merged.book.description,
+      externalSubjects: Array.from(new Set([...(merged.book.externalSubjects ?? []), ...(work.externalSubjects ?? [])])),
+      importedMetadata: { ...(merged.book.importedMetadata ?? {}), ...(work.importedMetadata ?? {}) },
+    } : merged.book;
+    const editions = await externalBookMetadataService.fetchOpenLibraryEditions(withWork).catch(() => []);
+    const ai = await bookAIService.inferMetadata(withWork);
+    const enriched: Book = {
+      ...withWork,
+      categories: mergeValues(withWork.categories, ai.genres),
+      tropes: mergeValues(withWork.tropes, ai.tropes),
+      moods: mergeValues(withWork.moods, ai.moods),
       importedMetadata: {
-        ...(merged.book.importedMetadata ?? {}),
+        ...(withWork.importedMetadata ?? {}),
         enrichment_audit: {
           last_run_at: new Date().toISOString(),
           factual_sources: merged.sources,
@@ -26,8 +37,17 @@ export const bookEnrichmentService = {
       },
     };
     await saveEnrichment(enriched);
+    await saveEditions(enriched, editions);
+    await trySaveRelationalSuggestions(enriched, ai, "ai_inferred");
     const suggestions = await saveAISuggestions(enriched.id, ai);
     return { book: enriched, ai, suggestions, factualSources: merged.sources, pageCountVariesByEdition: merged.pageCountVariesByEdition };
+  },
+
+  async listEditions(book: Book) {
+    if (!supabase) return externalBookMetadataService.fetchOpenLibraryEditions(book).catch(() => []);
+    const { data, error } = await supabase.from("book_editions").select("*").eq("book_id", book.id).order("published_year", { ascending: true });
+    if (!error && data?.length) return data.map(mapEditionRow);
+    return externalBookMetadataService.fetchOpenLibraryEditions(book).catch(() => []);
   },
 
   async listAISuggestions(bookId: string, status: "pending" | "accepted" | "rejected" = "pending"): Promise<BookAISuggestion[]> {
@@ -75,7 +95,7 @@ async function saveAISuggestions(bookId: string, ai: BookAIEnrichment): Promise<
   const { data, error } = await supabase.from("book_ai_suggestions").insert(rows).select("*");
   if (error) {
     console.error("Book Parlor AI suggestion save failed", error);
-    throw new Error("ai_suggestion_save_failed");
+    return [];
   }
   return (data ?? []).map(mapSuggestionRow);
 }
@@ -84,9 +104,46 @@ async function saveEnrichment(book: Book) {
   if (!supabase) return;
   const { error } = await supabase.from("books").upsert(bookToLiveBookRow(book));
   if (error) {
-    console.error("Book Parlor enrichment save failed", error);
-    throw new Error("enrichment_save_failed");
+    const fallback = await supabase.from("books").upsert({
+      id: book.id,
+      title: book.title,
+      subtitle: book.subtitle,
+      authors: book.authors,
+      description: book.description,
+      cover_url: book.coverUrl,
+      isbn_10: book.isbn10,
+      isbn_13: book.isbn13,
+      page_count: book.pageCount,
+      publisher: book.publisher,
+      published_year: book.publishedYear,
+      language: book.language,
+      source: book.source,
+    });
+    if (fallback.error) console.warn("Book Parlor factual enrichment skipped", error, fallback.error);
   }
+}
+
+async function saveEditions(book: Book, editions: import("../types").BookEdition[]) {
+  if (!supabase || !editions.length) return;
+  const rows = editions.map((edition) => ({
+    book_id: book.id,
+    source: edition.source,
+    source_edition_id: edition.openlibraryEditionKey ?? edition.googleBooksId ?? edition.id,
+    edition_title: edition.editionTitle,
+    format: edition.format,
+    isbn_10: edition.isbn10,
+    isbn_13: edition.isbn13,
+    page_count: edition.pageCount,
+    language: edition.language,
+    publisher: edition.publisher,
+    published_date: edition.publishedDate,
+    published_year: edition.publishedYear,
+    cover_url: edition.coverUrl,
+    imported_metadata: edition,
+    updated_at: new Date().toISOString(),
+  }));
+  const { error } = await supabase.from("book_editions").upsert(rows, { onConflict: "book_id,source,source_edition_id" });
+  if (error) console.warn("Book Parlor edition save skipped", error);
 }
 
 async function trySaveRelationalSuggestions(book: Book, ai: BookAIEnrichment, source: "ai_inferred") {
@@ -233,4 +290,29 @@ function firstSuggestionValue(value?: InferredMetadataValue) {
 
 function slugify(value: string) {
   return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+function firstUsefulDescription(...values: Array<string | undefined>) {
+  return values.find((value) => value && value.trim() && value !== "No description is available yet.");
+}
+
+function mapEditionRow(row: any): import("../types").BookEdition {
+  return {
+    id: `${row.source}:${row.source_edition_id ?? row.id}`,
+    databaseId: row.id,
+    bookId: row.book_id,
+    editionTitle: row.edition_title ?? "Edition",
+    format: row.format,
+    isbn10: row.isbn_10,
+    isbn13: row.isbn_13,
+    pageCount: row.page_count,
+    language: row.language,
+    publisher: row.publisher,
+    publishedDate: row.published_date,
+    publishedYear: row.published_year,
+    coverUrl: row.cover_url,
+    source: row.source,
+    openlibraryEditionKey: row.source === "open_library" ? row.source_edition_id : undefined,
+    googleBooksId: row.source === "google_books" ? row.source_edition_id : undefined,
+  };
 }

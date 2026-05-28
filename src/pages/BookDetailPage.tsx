@@ -12,7 +12,6 @@ import { bookService } from "../services/bookService";
 import { bookEnrichmentService } from "../services/bookEnrichmentService";
 import { communityRatingService, type CommunityRatingBreakdown } from "../services/communityRatingService";
 import { commentService } from "../services/commentService";
-import { externalBookMetadataService } from "../services/externalBookMetadataService";
 import { reviewService } from "../services/reviewService";
 import type { Book, BookAISuggestion, BookEdition, Comment, Review, UserBook } from "../types";
 
@@ -29,11 +28,16 @@ export function BookDetailPage() {
   const [toast, setToast] = useState<{ text: string; tone: "success" | "error" } | null>(null);
   const [savingAction, setSavingAction] = useState<"shelf" | "purchased" | null>(null);
   const [enriching, setEnriching] = useState(false);
+  const [enrichmentFailed, setEnrichmentFailed] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState("");
   const [switchingEditionId, setSwitchingEditionId] = useState<string>();
   useEffect(() => {
     bookService.getBook(bookId).then((nextBook) => {
       setBook(nextBook);
-      if (nextBook) externalBookMetadataService.fetchOpenLibraryEditions(nextBook).then(setEditions).catch(() => setEditions([]));
+      if (nextBook) {
+        bookEnrichmentService.listEditions(nextBook).then(setEditions).catch(() => setEditions([]));
+        if (needsEnrichment(nextBook)) runAutomaticEnrichment(nextBook);
+      }
     });
     bookService.getUserBookForBook(bookId).then(setUserBook).catch(() => setUserBook(undefined));
     bookEnrichmentService.listAISuggestions(bookId).then(setAISuggestions);
@@ -75,31 +79,33 @@ export function BookDetailPage() {
     window.setTimeout(() => setToast(null), 3000);
   };
 
-  const enrichBook = async () => {
-    if (!book) return;
+  const runAutomaticEnrichment = async (targetBook = book) => {
+    if (!targetBook || enriching) return;
     try {
       setEnriching(true);
-      const result = await bookEnrichmentService.enrichBook(book);
+      setEnrichmentFailed(false);
+      setLoadingMessage("Fetching book details...");
+      window.setTimeout(() => setLoadingMessage("Checking editions..."), 700);
+      window.setTimeout(() => setLoadingMessage("Looking for series information..."), 1400);
+      const result = await bookEnrichmentService.enrichBook(targetBook);
       setBook(result.book);
       setAISuggestions(result.suggestions);
-      externalBookMetadataService.fetchOpenLibraryEditions(result.book).then(setEditions).catch(() => setEditions([]));
-      showToast("Book details enriched from factual sources. AI vibes are marked separately.", "success");
+      bookEnrichmentService.listEditions(result.book).then(setEditions).catch(() => setEditions([]));
     } catch (error) {
       console.error("Book Parlor enrichment failed", error);
-      showToast("We could not enrich this book just now. Please try again.", "error");
+      setEnrichmentFailed(true);
     } finally {
       setEnriching(false);
+      setLoadingMessage("");
     }
   };
 
   const switchEdition = async (edition: BookEdition) => {
-    if (!userBook) {
-      showToast("Add this book to your library before choosing an edition.", "error");
-      return;
-    }
+    if (!book) return;
     try {
       setSwitchingEditionId(edition.id);
-      const next = await bookService.updateUserBook(userBook.id, { selectedEdition: edition });
+      const currentUserBook = userBook ?? await createUserBookForEdition(book);
+      const next = await bookService.updateUserBook(currentUserBook.id, { selectedEdition: edition });
       setUserBook(next);
       showToast("Your saved edition was updated.", "success");
     } catch (error) {
@@ -120,7 +126,13 @@ export function BookDetailPage() {
           {toast.tone === "error" && toast.text.startsWith("Sign in") && <button type="button" onClick={() => navigate("/auth")} className="ml-3 underline">Sign in</button>}
         </div>
       )}
-      <PageHeader eyebrow="Book detail" title={book.title} description={book.authors.join(", ")} action={<div className="flex flex-wrap gap-2"><button type="button" onClick={enrichBook} disabled={enriching} className="btn-soft">{enriching ? "Enriching..." : "Enrich book details"}</button><Link to={`/books/${book.id}/rate`} className="btn-primary"><Star size={18} />Rate this book</Link></div>} />
+      <PageHeader eyebrow="Book detail" title={book.title} description={book.authors.join(", ")} action={<Link to={`/books/${book.id}/rate`} className="btn-primary"><Star size={18} />Rate this book</Link>} />
+      {(enriching || enrichmentFailed) && (
+        <section className="cozy-card mb-6">
+          <p className="font-bold">{enriching ? loadingMessage || "Fetching book details..." : "Automatic metadata fetch did not finish."}</p>
+          {enrichmentFailed && <button type="button" onClick={() => runAutomaticEnrichment()} className="btn-soft mt-3">Retry metadata fetch</button>}
+        </section>
+      )}
       {userBook ? (
         <div className="mb-6">
           <ReadingStatusControls userBook={userBook} onChange={setUserBook} />
@@ -143,7 +155,7 @@ export function BookDetailPage() {
           </div>
         </div>
         <div className="grid gap-5">
-          <MetadataStatusCard book={book} loading={enriching} hasAISuggestions={aiSuggestions.length > 0 || Boolean(book.aiSummary)} onEnrich={enrichBook} />
+          <MetadataStatusCard book={book} loading={enriching} failed={enrichmentFailed} hasAISuggestions={aiSuggestions.length > 0 || Boolean(book.aiSummary)} onEnrich={() => runAutomaticEnrichment()} />
           <EditionDetailsCard book={book} selectedEdition={userBook?.selectedEdition} editions={editions} switchingEditionId={switchingEditionId} onSwitchEdition={switchEdition} />
           <section className="cozy-card">
             <div className="mb-4 grid gap-3 sm:grid-cols-3">
@@ -156,8 +168,8 @@ export function BookDetailPage() {
             ) : (
               <div className="rounded-2xl bg-gold/15 p-4">
                 <h3 className="font-serif text-2xl font-bold">Description missing</h3>
-                <p className="mt-2 text-espresso/70 dark:text-cream/70">Try enriching this book to fetch a real description from Google Books or Open Library.</p>
-                <button type="button" onClick={enrichBook} disabled={enriching} className="btn-primary mt-4">{enriching ? "Enriching..." : "Enrich book details"}</button>
+                <p className="mt-2 text-espresso/70 dark:text-cream/70">{enriching ? "Fetching a description from Google Books and Open Library..." : "No factual description was found yet."}</p>
+                {enrichmentFailed && <button type="button" onClick={() => runAutomaticEnrichment()} disabled={enriching} className="btn-primary mt-4">Retry metadata fetch</button>}
               </div>
             )}
             {book.aiSummary && (
@@ -196,6 +208,17 @@ function SeriesInfo({ book }: { book: Book }) {
       )}
     </div>
   );
+}
+
+async function createUserBookForEdition(book: Book) {
+  await bookService.saveBook(book, { readingStatus: "Want to Read" });
+  const userBook = await bookService.getUserBookForBook(book.id);
+  if (!userBook) throw new Error("library_save_failed");
+  return userBook;
+}
+
+function needsEnrichment(book: Book) {
+  return !hasUsefulDescription(book.description) || !book.pageCount || !book.isbn13 || !book.publisher || !book.openlibraryWorkKey || !book.tropes.length || !book.moods.length;
 }
 
 function suggestionValues(suggestions: BookAISuggestion[], fieldName: string) {

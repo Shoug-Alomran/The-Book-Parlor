@@ -1,4 +1,4 @@
-import { Grid3X3, Plus, Rows3, SquareStack } from "lucide-react";
+import { Grid3X3, Plus, Rows3, SquareStack, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { BookcaseShelf } from "../components/BookcaseShelf";
 import { PageHeader } from "../components/PageHeader";
@@ -13,6 +13,8 @@ export function BookcasesPage() {
   const [cases, setCases] = useState<Bookcase[]>([]);
   const [mode, setMode] = useState<Mode>("cozy");
   const [formOpen, setFormOpen] = useState(false);
+  const [managingCaseId, setManagingCaseId] = useState<string | null>(null);
+  const [busyKey, setBusyKey] = useState("");
   const [message, setMessage] = useState("");
   const [form, setForm] = useState({
     name: "",
@@ -45,6 +47,37 @@ export function BookcasesPage() {
       setMessage(error instanceof Error ? error.message : "Could not create bookcase.");
     }
     window.setTimeout(() => setMessage(""), 2600);
+  };
+
+  const deleteCase = async (bookcase: Bookcase) => {
+    if (bookcase.type !== "custom" && bookcase.type !== "trope") return;
+    try {
+      setBusyKey(`delete:${bookcase.id}`);
+      await bookcaseService.deleteBookcase(bookcase.id);
+      setMessage("Bookcase deleted.");
+      if (managingCaseId === bookcase.id) setManagingCaseId(null);
+      await load();
+    } catch {
+      setMessage("We could not delete that bookcase just now.");
+    } finally {
+      setBusyKey("");
+      window.setTimeout(() => setMessage(""), 2600);
+    }
+  };
+
+  const toggleBookInCase = async (bookcase: Bookcase, book: UserBook) => {
+    const isAdded = (bookcase.bookIds ?? []).includes(book.book.id);
+    try {
+      setBusyKey(`${bookcase.id}:${book.book.id}`);
+      if (isAdded) await bookcaseService.removeBookFromBookcase(bookcase.id, book.book.id);
+      else await bookcaseService.addBookToBookcase(bookcase.id, book.book.id);
+      await load();
+    } catch {
+      setMessage("We could not update that bookcase just now.");
+      window.setTimeout(() => setMessage(""), 2600);
+    } finally {
+      setBusyKey("");
+    }
   };
 
   return (
@@ -81,7 +114,58 @@ export function BookcasesPage() {
         )}
       </div>
       <div className="grid gap-6">
-        {cases.map((bookcase) => <BookcaseShelf key={bookcase.id} bookcase={bookcase} books={bookcaseService.booksForCase(bookcase, books)} mode={mode} />)}
+        {cases.map((bookcase) => {
+          const isCustom = bookcase.type === "custom" || bookcase.type === "trope";
+          return (
+            <div key={bookcase.id} className="grid gap-3">
+              <BookcaseShelf bookcase={bookcase} books={bookcaseService.booksForCase(bookcase, books)} mode={mode} />
+              {isCustom && (
+                <div className="cozy-card flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="font-serif text-2xl font-bold">Customize this bookcase</h3>
+                    <p className="text-sm font-semibold text-mocha/70 dark:text-cream/65">Manually choose which saved books belong here.</p>
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button type="button" onClick={() => setManagingCaseId((current) => current === bookcase.id ? null : bookcase.id)} className="btn-primary">
+                      {managingCaseId === bookcase.id ? "Done managing" : "Add books"}
+                    </button>
+                    <button type="button" disabled={busyKey === `delete:${bookcase.id}`} onClick={() => deleteCase(bookcase)} className="btn-soft text-rose">
+                      <Trash2 size={18} />{busyKey === `delete:${bookcase.id}` ? "Deleting..." : "Delete"}
+                    </button>
+                  </div>
+                </div>
+              )}
+              {managingCaseId === bookcase.id && (
+                <section className="cozy-card">
+                  <h3 className="font-serif text-2xl font-bold">Choose books</h3>
+                  <div className="mt-4 grid gap-2 md:grid-cols-2">
+                    {books.map((book) => {
+                      const isAdded = (bookcase.bookIds ?? []).includes(book.book.id);
+                      const key = `${bookcase.id}:${book.book.id}`;
+                      return (
+                        <button
+                          key={book.id}
+                          type="button"
+                          disabled={busyKey === key}
+                          onClick={() => toggleBookInCase(bookcase, book)}
+                          className={`flex items-center gap-3 rounded-2xl p-3 text-left font-bold transition ${isAdded ? "bg-gold/25 text-espresso dark:text-cream" : "bg-white/60 hover:bg-white/80 dark:bg-white/10"}`}
+                        >
+                          {book.book.coverUrl && <img src={book.book.coverUrl} alt="" className="h-16 w-11 rounded-lg object-cover" />}
+                          <span className="min-w-0 flex-1">
+                            <span className="line-clamp-1 block">{book.book.title}</span>
+                            <span className="line-clamp-1 block text-xs text-mocha/70 dark:text-cream/60">{book.book.authors.join(", ")}</span>
+                          </span>
+                          <span className="chip">{isAdded ? "Remove" : "Add"}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                  {!books.length && <p className="mt-3 text-sm font-semibold text-mocha/70 dark:text-cream/65">Add books to your library first, then they will appear here.</p>}
+                </section>
+              )}
+            </div>
+          );
+        })}
       </div>
     </div>
   );

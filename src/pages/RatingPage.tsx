@@ -233,8 +233,8 @@ export function RatingPage() {
 
         <JournalSection title="POV tracker" note="Perspective and narrator count are stored separately.">
           <div className="grid gap-3 md:grid-cols-2">
-            <Segmented options={povTypes} value={journal.povType} onChange={(value) => setJournal((current) => ({ ...current, povType: value as PovType }))} />
-            <Segmented options={povCounts} value={journal.povCount} onChange={(value) => setJournal((current) => ({ ...current, povCount: value as PovCount }))} />
+            <Segmented label="Perspective" options={povTypes} value={journal.povType} onChange={(value) => setJournal((current) => ({ ...current, povType: value as PovType }))} />
+            <Segmented label="Narrator count" options={povCounts} value={journal.povCount} onChange={(value) => setJournal((current) => ({ ...current, povCount: value as PovCount }))} />
           </div>
         </JournalSection>
 
@@ -325,10 +325,24 @@ function CollectibleButton({ active, onClick, label, icon }: { active: boolean; 
   );
 }
 
-function Segmented({ options, value, onChange }: { options: string[]; value: string; onChange: (value: string) => void }) {
+function Segmented({ label, options, value, onChange }: { label: string; options: string[]; value: string; onChange: (value: string) => void }) {
   return (
-    <div className="grid gap-2 rounded-3xl bg-white/40 p-2 dark:bg-white/10 sm:grid-cols-3">
-      {options.map((option) => <button key={option} type="button" onClick={() => onChange(option)} className={value === option ? "btn-primary px-3" : "btn-soft px-3"}>{option}</button>)}
+    <div>
+      <div className="mb-2 text-xs font-black uppercase tracking-[0.18em] text-mocha/70 dark:text-cream/60">{label}</div>
+      <div role="radiogroup" aria-label={label} className="grid gap-2 rounded-3xl bg-white/40 p-2 dark:bg-white/10 sm:grid-cols-3">
+        {options.map((option) => (
+          <button
+            key={option}
+            type="button"
+            role="radio"
+            aria-checked={value === option}
+            onClick={() => onChange(option)}
+            className={value === option ? "btn-primary px-3" : "btn-soft px-3"}
+          >
+            {option}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

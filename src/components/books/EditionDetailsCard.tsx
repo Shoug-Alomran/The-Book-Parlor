@@ -62,10 +62,13 @@ export function EditionDetailsCard({ book, selectedEdition, editions = [], switc
 function EditionRow({ edition, current = false, switching = false, onSwitch }: { edition: BookEdition; current?: boolean; switching?: boolean; onSwitch?: () => void }) {
   return (
     <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl bg-white/55 p-4 dark:bg-white/10">
-      <div>
+      <div className="flex min-w-0 flex-1 items-center gap-3">
+        {edition.coverUrl && <img src={edition.coverUrl} alt="" className="h-20 w-14 rounded-lg object-cover shadow" />}
+        <div className="min-w-0">
         <div className="font-bold">{current ? "Current edition" : edition.editionTitle}</div>
         <div className="mt-1 text-sm font-semibold text-mocha/70 dark:text-cream/65">
-          {[edition.format, edition.publisher, edition.publishedDate ?? edition.publishedYear, edition.pageCount ? `${edition.pageCount} pages` : undefined].filter(Boolean).join(" · ") || "Edition details unavailable"}
+          {[edition.format, edition.isbn13 ? `ISBN-13 ${edition.isbn13}` : edition.isbn10 ? `ISBN-10 ${edition.isbn10}` : undefined, edition.publisher, edition.publishedDate ?? edition.publishedYear, edition.pageCount ? `${edition.pageCount} pages` : undefined, edition.language].filter(Boolean).join(" · ") || "Edition details unavailable"}
+        </div>
         </div>
       </div>
       {current ? <span className="chip">Current edition</span> : <button type="button" onClick={onSwitch} className="btn-soft px-4">{switching ? "Switching..." : "Switch to this edition"}</button>}
