@@ -1,4 +1,5 @@
 import type { Bookcase, OwnershipStatus, ReadingStatus } from "../types";
+import { tropeVocabulary } from "./tropeVocabulary";
 
 export const readingStatuses: ReadingStatus[] = ["Want to Read", "Currently Reading", "Read", "DNF", "Paused"];
 
@@ -41,36 +42,7 @@ export const smartShelves = [
   "Cozy Reads",
 ];
 
-export const tropes = [
-  "enemies-to-lovers",
-  "friends-to-lovers",
-  "forced proximity",
-  "fake dating",
-  "mafia",
-  "morally gray MMC",
-  "touch her and die",
-  "found family",
-  "slow burn",
-  "love triangle",
-  "second chance",
-  "arranged marriage",
-  "grumpy sunshine",
-  "one bed",
-  "forbidden romance",
-  "academy",
-  "vampires",
-  "werewolves",
-  "fae",
-  "dystopian",
-  "chosen one",
-  "revenge",
-  "betrayal",
-  "dark academia",
-  "sports romance",
-  "small town",
-  "book club",
-  "chick-lit",
-];
+export const tropes = tropeVocabulary.map((trope) => trope.slug);
 
 export const moods = ["cozy", "dark", "emotional", "funny", "intense", "chaotic", "comforting", "healing", "devastating", "addictive", "rage-inducing", "book hangover"];
 

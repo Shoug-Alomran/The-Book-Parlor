@@ -1,4 +1,4 @@
-import { BookMarked, MessageCircle, ShoppingBag, Star } from "lucide-react";
+import { BookMarked, Bug, MessageCircle, RefreshCw, ShoppingBag, Star } from "lucide-react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useEffect, useState } from "react";
 import { CommentsSection } from "../components/CommentsSection";
@@ -13,7 +13,7 @@ import { bookEnrichmentService } from "../services/bookEnrichmentService";
 import { communityRatingService, type CommunityRatingBreakdown } from "../services/communityRatingService";
 import { commentService } from "../services/commentService";
 import { reviewService } from "../services/reviewService";
-import type { Book, BookAISuggestion, BookEdition, Comment, Review, UserBook } from "../types";
+import type { Book, BookAIDebugInfo, BookAISuggestion, BookEdition, Comment, Review, UserBook } from "../types";
 
 export function BookDetailPage() {
   const { bookId = "" } = useParams();
@@ -23,6 +23,7 @@ export function BookDetailPage() {
   const [comments, setComments] = useState<Comment[]>([]);
   const [userBook, setUserBook] = useState<UserBook>();
   const [aiSuggestions, setAISuggestions] = useState<BookAISuggestion[]>([]);
+  const [aiDebug, setAIDebug] = useState<BookAIDebugInfo>();
   const [ratingBreakdown, setRatingBreakdown] = useState<CommunityRatingBreakdown>({ type: "none", sourceLabel: "No ratings yet" });
   const [editions, setEditions] = useState<BookEdition[]>([]);
   const [toast, setToast] = useState<{ text: string; tone: "success" | "error" } | null>(null);
@@ -90,10 +91,30 @@ export function BookDetailPage() {
       const result = await bookEnrichmentService.enrichBook(targetBook);
       setBook(result.book);
       setAISuggestions(result.suggestions);
+      setAIDebug(result.ai.debug);
       bookEnrichmentService.listEditions(result.book).then(setEditions).catch(() => setEditions([]));
     } catch (error) {
       console.error("Book Parlor enrichment failed", error);
       setEnrichmentFailed(true);
+    } finally {
+      setEnriching(false);
+      setLoadingMessage("");
+    }
+  };
+
+  const rerunAIDetection = async () => {
+    if (!book) return;
+    try {
+      setEnriching(true);
+      setLoadingMessage("Rerunning AI detection...");
+      const result = await bookEnrichmentService.rerunAIDetection(book);
+      setBook(result.book);
+      setAISuggestions(result.suggestions);
+      setAIDebug(result.ai.debug);
+      showToast(result.ai.detectionUnavailable ? "AI detection unavailable." : "AI detection rerun complete.", result.ai.detectionUnavailable ? "error" : "success");
+    } catch (error) {
+      console.error("Book Parlor AI rerun failed", error);
+      showToast("We could not rerun AI detection just now.", "error");
     } finally {
       setEnriching(false);
       setLoadingMessage("");
@@ -184,11 +205,12 @@ export function BookDetailPage() {
             <div className="mt-5 grid gap-4">
               <SeriesInfo book={book} />
               <div><h3 className="mb-2 font-bold">Genres</h3><TropeChips items={book.categories} /></div>
-              <div><h3 className="mb-2 font-bold">Tropes {aiSuggestions.some((item) => item.fieldName === "tropes") && <span className="chip ml-2 bg-gold/20">AI inferred</span>}</h3><TropeChips items={book.tropes.length ? book.tropes : suggestionValues(aiSuggestions, "tropes")} /></div>
-              <div><h3 className="mb-2 font-bold">Moods {aiSuggestions.some((item) => item.fieldName === "moods") && <span className="chip ml-2 bg-gold/20">AI inferred</span>}</h3><TropeChips items={book.moods.length ? book.moods : suggestionValues(aiSuggestions, "moods")} tone="mood" /></div>
+              <div><h3 className="mb-2 font-bold">Tropes {aiSuggestions.some((item) => item.fieldName === "tropes") && <span className="chip ml-2 bg-gold/20">AI inferred</span>}</h3><TropeChips items={book.tropes.length ? book.tropes : suggestionValues(aiSuggestions, "tropes", 0.75)} />{possibleSuggestionValues(aiSuggestions, "tropes").length > 0 && <div className="mt-2"><span className="mr-2 text-xs font-bold uppercase tracking-[0.14em] text-mocha/60">Possible</span><TropeChips items={possibleSuggestionValues(aiSuggestions, "tropes")} /></div>}</div>
+              <div><h3 className="mb-2 font-bold">Moods {aiSuggestions.some((item) => item.fieldName === "moods") && <span className="chip ml-2 bg-gold/20">AI inferred</span>}</h3><TropeChips items={book.moods.length ? book.moods : suggestionValues(aiSuggestions, "moods", 0.75)} tone="mood" />{possibleSuggestionValues(aiSuggestions, "moods").length > 0 && <div className="mt-2"><span className="mr-2 text-xs font-bold uppercase tracking-[0.14em] text-mocha/60">Possible</span><TropeChips items={possibleSuggestionValues(aiSuggestions, "moods")} tone="mood" /></div>}</div>
               <div><h3 className="mb-2 font-bold">Content warnings</h3><TropeChips items={book.contentWarnings ?? []} tone="warning" /></div>
             </div>
           </section>
+          <AIDebugPanel debug={aiDebug} suggestions={aiSuggestions} onRerun={rerunAIDetection} loading={enriching} />
           <RatingBreakdownCard breakdown={ratingBreakdown} bookId={book.id} />
         </div>
       </section>
@@ -224,11 +246,40 @@ function needsEnrichment(book: Book) {
   return !hasUsefulDescription(book.description) || !book.pageCount || !book.isbn13 || !book.publisher || !book.openlibraryWorkKey || !book.tropes.length || !book.moods.length;
 }
 
-function suggestionValues(suggestions: BookAISuggestion[], fieldName: string) {
+function suggestionValues(suggestions: BookAISuggestion[], fieldName: string, minConfidence = 0.5) {
   return suggestions
-    .filter((suggestion) => suggestion.fieldName === fieldName)
+    .filter((suggestion) => suggestion.fieldName === fieldName && suggestion.confidence >= minConfidence)
     .map((suggestion) => Array.isArray(suggestion.suggestedValue) ? undefined : suggestion.suggestedValue.value)
     .filter(Boolean) as string[];
+}
+
+function possibleSuggestionValues(suggestions: BookAISuggestion[], fieldName: string) {
+  return suggestions
+    .filter((suggestion) => suggestion.fieldName === fieldName && suggestion.confidence >= 0.5 && suggestion.confidence < 0.75)
+    .map((suggestion) => Array.isArray(suggestion.suggestedValue) ? undefined : suggestion.suggestedValue.value)
+    .filter(Boolean) as string[];
+}
+
+function AIDebugPanel({ debug, suggestions, onRerun, loading }: { debug?: BookAIDebugInfo; suggestions: BookAISuggestion[]; onRerun: () => void; loading: boolean }) {
+  const enabled = import.meta.env.DEV || import.meta.env.VITE_ENABLE_AI_DEBUG === "true";
+  if (!enabled) return null;
+  return (
+    <section className="cozy-card">
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h2 className="flex items-center gap-2 font-serif text-3xl font-bold"><Bug size={22} />AI debug</h2>
+        <button type="button" onClick={onRerun} disabled={loading} className="btn-soft"><RefreshCw size={17} className={loading ? "animate-spin" : ""} />Rerun AI detection</button>
+      </div>
+      <div className="grid gap-2 text-sm font-semibold md:grid-cols-2">
+        <div className="rounded-2xl bg-white/55 p-3 dark:bg-white/10">OpenAI called: {debug?.openaiCalled ? "yes" : "no"}</div>
+        <div className="rounded-2xl bg-white/55 p-3 dark:bg-white/10">Description length: {debug?.descriptionLength ?? 0}</div>
+        <div className="rounded-2xl bg-white/55 p-3 dark:bg-white/10">Model: {debug?.model ?? "unknown"}</div>
+        <div className="rounded-2xl bg-white/55 p-3 dark:bg-white/10">Fallback used: {debug?.fallbackUsed ? "yes" : "no"}</div>
+        <div className="rounded-2xl bg-white/55 p-3 dark:bg-white/10">Saved trope count: {debug?.savedTropeCount ?? suggestions.filter((item) => item.fieldName === "tropes").length}</div>
+        <div className="rounded-2xl bg-white/55 p-3 dark:bg-white/10">Error: {debug?.error ?? "none"}</div>
+      </div>
+      <pre className="mt-4 max-h-72 overflow-auto rounded-2xl bg-espresso p-4 text-xs text-cream">{JSON.stringify(debug?.returnedJson ?? {}, null, 2)}</pre>
+    </section>
+  );
 }
 
 function hasUsefulDescription(description?: string) {

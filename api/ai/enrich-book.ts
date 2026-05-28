@@ -1,140 +1,259 @@
+type Basis = "description" | "metadata" | "known_book_knowledge" | "community_signal";
+
+type ClassifiedItem = {
+  name: string;
+  normalized_slug?: string;
+  confidence: number;
+  evidence: string;
+  source_basis: Basis;
+  custom?: boolean;
+  status?: "suggested";
+};
+
 type EnrichBookRequest = {
   book_id?: string;
   title?: string;
+  subtitle?: string;
   author?: string;
   authors?: string[];
   description?: string;
   categories?: string[];
   subjects?: string[];
+  series_name?: string;
+  community_tropes?: string[];
 };
 
 type EnrichBookResponse = {
-  tropes: string[];
-  moods: string[];
-  season_vibes: string[];
-  rating_genre_suggestion: string;
-  content_warnings: string[];
-  pov_type: string;
-  pov_count: string;
-  short_summary: string;
-  similar_books: string[];
-  confidence: Record<string, number | Record<string, number>>;
+  genres: Array<Omit<ClassifiedItem, "normalized_slug" | "custom">>;
+  rating_genre_suggestion: Omit<ClassifiedItem, "normalized_slug" | "custom"> | null;
+  tropes: ClassifiedItem[];
+  moods: ClassifiedItem[];
+  season_vibes: ClassifiedItem[];
+  content_warnings: Array<ClassifiedItem & { status: "suggested" }>;
+  possible_series_status: ClassifiedItem | null;
+  hype_rating_suggestion: ClassifiedItem | null;
+  pov_type: ClassifiedItem | null;
+  pov_count: ClassifiedItem | null;
+  short_summary: ClassifiedItem | null;
+  similar_books: ClassifiedItem[];
+  debug: {
+    openai_called: boolean;
+    description_length: number;
+    model: string;
+    fallback_used: boolean;
+    returned_json?: unknown;
+    error?: string;
+  };
 };
+
+const allowedTropes = [
+  "Enemies to lovers",
+  "Friends to lovers",
+  "Forced proximity",
+  "Fake dating",
+  "Marriage of convenience",
+  "Morally gray characters",
+  "Touch her and die",
+  "Found family",
+  "Slow burn",
+  "Love triangle",
+  "Second chance romance",
+  "Grumpy sunshine",
+  "Only one bed",
+  "Forbidden romance",
+  "Academy setting",
+  "Vampires",
+  "Werewolves",
+  "Fae",
+  "Dystopian world",
+  "Chosen one",
+  "Revenge",
+  "Betrayal",
+  "Dark academia",
+  "Sports romance",
+  "Small town",
+  "Mafia romance",
+  "Workplace romance",
+  "Rivals to lovers",
+  "Who did this to you",
+];
 
 export default async function handler(request: Request): Promise<Response> {
   if (request.method !== "POST") return json({ error: "Method not allowed" }, 405);
   const body = await request.json() as EnrichBookRequest;
+  const model = process.env.OPENAI_MODEL ?? "gpt-4.1-mini";
+  const descriptionLength = body.description?.length ?? 0;
   const apiKey = process.env.OPENAI_API_KEY;
 
-  if (!apiKey) return json(cautiousFallback(body));
+  console.info("[Book Parlor AI] OPENAI_API_KEY exists:", Boolean(apiKey));
+  if (!apiKey) {
+    console.error("[Book Parlor AI] fallback trigger reason: OPENAI_API_KEY is not configured.");
+    return json(unavailable(body, model, "OPENAI_API_KEY is not configured."), 500);
+  }
 
-  const response = await fetch("https://api.openai.com/v1/responses", {
+  const prompt = {
+    schema: {
+      genres: [{ name: "string", confidence: "0-1", evidence: "string", source_basis: "description|metadata|known_book_knowledge|community_signal" }],
+      rating_genre_suggestion: { name: "string", confidence: "0-1", evidence: "string", source_basis: "description|metadata|known_book_knowledge|community_signal" },
+      tropes: [{ name: "string", normalized_slug: "string", confidence: "0-1", evidence: "string", source_basis: "description|metadata|known_book_knowledge|community_signal", custom: "boolean" }],
+      moods: [{ name: "string", confidence: "0-1", evidence: "string", source_basis: "description|metadata|known_book_knowledge|community_signal" }],
+      season_vibes: [{ name: "string", confidence: "0-1", evidence: "string", source_basis: "description|metadata|known_book_knowledge|community_signal" }],
+      content_warnings: [{ name: "string", confidence: "0-1", evidence: "string", source_basis: "description|metadata|known_book_knowledge|community_signal", status: "suggested" }],
+      possible_series_status: { name: "string", confidence: "0-1", evidence: "string", source_basis: "description|metadata|known_book_knowledge|community_signal" },
+      hype_rating_suggestion: { name: "string", confidence: "0-1", evidence: "string", source_basis: "description|metadata|known_book_knowledge|community_signal" },
+      pov_type: { name: "string", confidence: "0-1", evidence: "string", source_basis: "description|metadata|known_book_knowledge|community_signal" },
+      pov_count: { name: "string", confidence: "0-1", evidence: "string", source_basis: "description|metadata|known_book_knowledge|community_signal" },
+      short_summary: { name: "string", confidence: "0-1", evidence: "string", source_basis: "description|metadata|known_book_knowledge|community_signal" },
+      similar_books: [{ name: "string", confidence: "0-1", evidence: "string", source_basis: "known_book_knowledge" }],
+    },
+    allowed_trope_vocabulary: allowedTropes,
+    normalization_rules: [
+      "enemies-to-lovers = enemies to lovers = hate-to-love",
+      "morally grey = morally gray characters",
+      "arranged marriage may normalize to Marriage of convenience only if the relationship setup supports it",
+      "Romance, Fantasy, Horror, Mystery, Thriller, Dark Romance, and Romantasy are genres/subgenres, not tropes",
+      "Do not return creatures such as Fae, Vampires, or Werewolves unless directly supported by description, subjects, title, or high-confidence known-book knowledge",
+    ],
+    quality_rules: [
+      "Return fewer tropes when uncertain.",
+      "Only return a trope if directly supported by supplied context or high-confidence known-book knowledge.",
+      "Every trope must include concrete evidence.",
+      "Do not invent factual metadata.",
+      "Content warnings are suggestions only.",
+    ],
+    book: {
+      book_id: body.book_id,
+      title: body.title,
+      subtitle: body.subtitle,
+      author: body.author ?? body.authors?.join(", "),
+      description: body.description,
+      categories: body.categories ?? [],
+      subjects: body.subjects ?? [],
+      series_name: body.series_name,
+      existing_community_tropes: body.community_tropes ?? [],
+    },
+  };
+
+  console.info("[Book Parlor AI] OpenAI request started", { model, book_id: body.book_id, title: body.title, description_length: descriptionLength });
+  let response: Response;
+  try {
+    response = await fetch("https://api.openai.com/v1/responses", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${apiKey}`,
     },
     body: JSON.stringify({
-      model: process.env.OPENAI_MODEL ?? "gpt-4.1-mini",
+      model,
       input: [
         {
           role: "system",
-          content: [
-            "You are enriching a book for The Book Parlor.",
-            "Return strict JSON only matching the requested schema.",
-            "Infer only subjective/vibe metadata.",
-            "Never invent factual metadata such as ISBN, page count, publisher, publication date, external rating, or exact edition.",
-            "Content warnings must be suggestions, not confirmed facts.",
-            "If the description is missing, infer cautiously with lower confidence.",
-          ].join(" "),
+          content: "You are a precise book classification engine. Return strict JSON only. Classify in layers: genres, tropes, moods/vibes, rating template, content warning suggestions. Quality over quantity.",
         },
-        {
-          role: "user",
-          content: JSON.stringify({
-            schema: {
-              tropes: "string[]",
-              moods: "string[]",
-              season_vibes: "string[]",
-              rating_genre_suggestion: "string",
-              content_warnings: "string[]",
-              pov_type: "string",
-              pov_count: "string",
-              short_summary: "string",
-              similar_books: "string[]",
-              confidence: "object mapping each field or item to 0-1 confidence",
-            },
-            book: {
-              book_id: body.book_id,
-              title: body.title,
-              author: body.author ?? body.authors?.join(", "),
-              description: body.description,
-              categories: body.categories ?? [],
-              subjects: body.subjects ?? [],
-            },
-          }),
-        },
+        { role: "user", content: JSON.stringify(prompt) },
       ],
       text: { format: { type: "json_object" } },
     }),
   });
+  } catch (error) {
+    console.error("[Book Parlor AI] OpenAI request threw", error);
+    console.error("[Book Parlor AI] fallback trigger reason: request exception");
+    return json(unavailable(body, model, error instanceof Error ? error.message : "OpenAI request failed."), 502);
+  }
 
-  if (!response.ok) return json(cautiousFallback(body));
+  console.info("[Book Parlor AI] OpenAI response status:", response.status);
+  if (!response.ok) {
+    const failureBody = await response.text();
+    console.error("[Book Parlor AI] OpenAI failed body:", failureBody);
+    console.error("[Book Parlor AI] fallback trigger reason: non-OK OpenAI response");
+    return json(unavailable(body, model, `OpenAI returned ${response.status}: ${failureBody}`), 502);
+  }
+  console.info("OPENAI CONNECTED SUCCESSFULLY");
   const result = await response.json();
   const content = result.output_text ?? result.output?.flatMap((item: any) => item.content ?? []).find((part: any) => part.type === "output_text")?.text;
   try {
-    return json(normalizePayload(JSON.parse(content)));
+    const parsed = JSON.parse(content);
+    return json({ ...normalizePayload(parsed), debug: { openai_called: true, description_length: descriptionLength, model, fallback_used: false, returned_json: parsed } });
   } catch {
-    return json(cautiousFallback(body));
+    console.error("[Book Parlor AI] OpenAI returned invalid JSON:", content);
+    console.error("[Book Parlor AI] fallback trigger reason: invalid JSON");
+    return json(unavailable(body, model, "OpenAI returned invalid JSON."), 502);
   }
 }
 
-function normalizePayload(payload: any): EnrichBookResponse {
-  const confidence = typeof payload?.confidence === "object" && payload.confidence ? payload.confidence : {};
+function normalizePayload(payload: any): Omit<EnrichBookResponse, "debug"> {
   return {
-    tropes: stringArray(payload?.tropes),
-    moods: stringArray(payload?.moods),
-    season_vibes: stringArray(payload?.season_vibes),
-    rating_genre_suggestion: stringValue(payload?.rating_genre_suggestion),
-    content_warnings: stringArray(payload?.content_warnings),
-    pov_type: stringValue(payload?.pov_type),
-    pov_count: stringValue(payload?.pov_count),
-    short_summary: stringValue(payload?.short_summary),
-    similar_books: stringArray(payload?.similar_books),
-    confidence,
+    genres: list(payload?.genres).map(normalizeItem),
+    rating_genre_suggestion: one(payload?.rating_genre_suggestion),
+    tropes: list(payload?.tropes).map(normalizeItem).filter((item) => !isGenreAsTrope(item.name)),
+    moods: list(payload?.moods).map(normalizeItem),
+    season_vibes: list(payload?.season_vibes).map(normalizeItem),
+    content_warnings: list(payload?.content_warnings).map((item) => ({ ...normalizeItem(item), status: "suggested" as const })),
+    possible_series_status: one(payload?.possible_series_status),
+    hype_rating_suggestion: one(payload?.hype_rating_suggestion),
+    pov_type: one(payload?.pov_type),
+    pov_count: one(payload?.pov_count),
+    short_summary: one(payload?.short_summary),
+    similar_books: list(payload?.similar_books).map(normalizeItem),
   };
 }
 
-function cautiousFallback(body: EnrichBookRequest): EnrichBookResponse {
-  const text = `${body.title ?? ""} ${body.author ?? body.authors?.join(" ") ?? ""} ${body.description ?? ""} ${(body.categories ?? []).join(" ")} ${(body.subjects ?? []).join(" ")}`.toLowerCase();
-  const hasDescription = Boolean(body.description?.trim());
-  const confidence = hasDescription ? 0.55 : 0.3;
-  const genre = text.includes("romance") ? "Romance" : text.includes("fantasy") ? "Fantasy" : text.includes("mystery") ? "Mystery" : text.includes("horror") ? "Horror" : "Other";
-  const moods = [text.includes("dark") ? "dark" : text.includes("emotional") ? "emotional" : "cozy"];
+function unavailable(body: EnrichBookRequest, model: string, error: string): EnrichBookResponse {
   return {
+    genres: [],
+    rating_genre_suggestion: null,
     tropes: [],
-    moods,
-    season_vibes: [text.includes("winter") ? "winter" : text.includes("summer") ? "summer" : text.includes("autumn") || text.includes("fall") ? "autumn" : "spring"],
-    rating_genre_suggestion: genre,
+    moods: [],
+    season_vibes: [],
     content_warnings: [],
-    pov_type: "",
-    pov_count: "",
-    short_summary: hasDescription ? `A ${genre.toLowerCase()} read with a ${moods[0]} Book Parlor mood.` : "AI can only infer a light reading vibe until a factual description is available.",
+    possible_series_status: null,
+    hype_rating_suggestion: null,
+    pov_type: null,
+    pov_count: null,
+    short_summary: null,
     similar_books: [],
-    confidence: {
-      moods: confidence,
-      season_vibes: Math.max(0.2, confidence - 0.1),
-      rating_genre_suggestion: confidence,
-      short_summary: confidence,
+    debug: {
+      openai_called: false,
+      description_length: body.description?.length ?? 0,
+      model,
+      fallback_used: false,
+      error,
     },
   };
 }
 
-function stringArray(value: unknown) {
-  return Array.isArray(value) ? value.map(stringValue).filter(Boolean) : [];
+function normalizeItem(item: any): ClassifiedItem {
+  const name = String(item?.name ?? item?.value ?? "").trim();
+  return {
+    name,
+    normalized_slug: String(item?.normalized_slug ?? slugify(name)).trim(),
+    confidence: clamp(Number(item?.confidence ?? 0)),
+    evidence: String(item?.evidence ?? "").trim(),
+    source_basis: (["description", "metadata", "known_book_knowledge", "community_signal"].includes(item?.source_basis) ? item.source_basis : "metadata") as Basis,
+    custom: Boolean(item?.custom),
+    status: item?.status === "suggested" ? "suggested" : undefined,
+  };
 }
 
-function stringValue(value: unknown) {
-  return typeof value === "string" ? value.trim() : "";
+function one(value: unknown) {
+  if (!value) return null;
+  return normalizeItem(value);
+}
+
+function list(value: unknown) {
+  return Array.isArray(value) ? value : [];
+}
+
+function isGenreAsTrope(name: string) {
+  return ["romance", "fantasy", "dark romance", "romantasy", "horror", "mystery", "thriller", "science fiction", "literary fiction", "young adult", "nonfiction"].includes(name.toLowerCase());
+}
+
+function slugify(value: string) {
+  return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+function clamp(value: number) {
+  return Number(Math.max(0, Math.min(1, Number.isFinite(value) ? value : 0)).toFixed(2));
 }
 
 function json(payload: unknown, status = 200) {

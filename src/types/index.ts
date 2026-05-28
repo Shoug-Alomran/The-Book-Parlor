@@ -63,8 +63,12 @@ export type Book = {
 
 export type InferredMetadataValue = {
   value: string;
+  normalizedSlug?: string;
   confidence: number;
   source: "ai_inferred";
+  evidence?: string;
+  sourceBasis?: "description" | "metadata" | "known_book_knowledge" | "community_signal" | "fallback";
+  custom?: boolean;
 };
 
 export type BookAIEnrichment = {
@@ -83,6 +87,18 @@ export type BookAIEnrichment = {
   book_parlor_summary?: InferredMetadataValue;
   similar_books: InferredMetadataValue[];
   suggested_rating_template?: InferredMetadataValue;
+  detectionUnavailable?: boolean;
+  debug?: BookAIDebugInfo;
+};
+
+export type BookAIDebugInfo = {
+  openaiCalled: boolean;
+  descriptionLength: number;
+  model: string;
+  returnedJson?: unknown;
+  fallbackUsed: boolean;
+  savedTropeCount?: number;
+  error?: string;
 };
 
 export type BookEnrichmentResult = {

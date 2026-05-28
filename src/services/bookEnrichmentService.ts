@@ -38,9 +38,15 @@ export const bookEnrichmentService = {
     };
     await saveEnrichment(enriched);
     await saveEditions(enriched, editions);
-    await trySaveRelationalSuggestions(enriched, ai, "ai_inferred");
+    const savedTropeCount = await trySaveRelationalSuggestions(enriched, ai, "ai_inferred");
+    if (ai.debug) ai.debug.savedTropeCount = savedTropeCount;
     const suggestions = await saveAISuggestions(enriched.id, ai);
     return { book: enriched, ai, suggestions, factualSources: merged.sources, pageCountVariesByEdition: merged.pageCountVariesByEdition };
+  },
+
+  async rerunAIDetection(book: Book): Promise<BookEnrichmentResult> {
+    await clearPreviousAISuggestions(book.id);
+    return this.enrichBook({ ...book, tropes: [], moods: [], contentWarnings: [] });
   },
 
   async listEditions(book: Book) {
@@ -87,7 +93,7 @@ export const bookEnrichmentService = {
 };
 
 async function saveAISuggestions(bookId: string, ai: BookAIEnrichment): Promise<BookAISuggestion[]> {
-  if (!supabase) return [];
+  if (!supabase || ai.detectionUnavailable) return [];
   const { data: userData } = await supabase.auth.getUser();
   const userId = userData.user?.id ?? null;
   const rows = aiToSuggestionRows(bookId, userId, ai);
@@ -147,25 +153,30 @@ async function saveEditions(book: Book, editions: import("../types").BookEdition
 }
 
 async function trySaveRelationalSuggestions(book: Book, ai: BookAIEnrichment, source: "ai_inferred") {
-  if (!supabase) return;
+  if (!supabase || ai.detectionUnavailable) return 0;
   try {
     const { data: userData } = await supabase.auth.getUser();
+    const tropesToSave = ai.tropes.filter((item) => item.confidence >= 0.5);
     await Promise.all([
-      saveNamedLinks("tropes", "book_tropes", "trope_id", book.id, ai.tropes, source),
-      saveNamedLinks("moods", "book_moods", "mood_id", book.id, ai.moods, source),
-      saveContentWarnings(book.id, userData.user?.id, ai.content_warnings, source),
+      saveNamedLinks("tropes", "book_tropes", "trope_id", book.id, tropesToSave, source),
+      saveNamedLinks("moods", "book_moods", "mood_id", book.id, ai.moods.filter((item) => item.confidence >= 0.5), source),
+      saveContentWarnings(book.id, userData.user?.id, ai.content_warnings.filter((item) => item.confidence >= 0.5), source),
     ]);
+    return tropesToSave.length;
   } catch {
     // The pending/accepted suggestion rows remain intact even if relation tables need a policy update.
+    return 0;
   }
 }
 
 async function saveNamedLinks(table: "tropes" | "moods", linkTable: "book_tropes" | "book_moods", foreignKey: "trope_id" | "mood_id", bookId: string, values: InferredMetadataValue[], source: "ai_inferred") {
-  const rows = values.map((item) => ({ name: item.value, slug: slugify(item.value), category: source }));
+  const rows = values.map((item) => table === "tropes"
+    ? { name: item.value, slug: item.normalizedSlug ?? slugify(item.value), category: item.custom ? "custom_ai" : source }
+    : { name: item.value, slug: item.normalizedSlug ?? slugify(item.value) });
   if (!rows.length || !supabase) return;
   await supabase.from(table).upsert(rows, { onConflict: "slug" });
   const { data } = await supabase.from(table).select("id, slug").in("slug", rows.map((row) => row.slug));
-  const links = (data ?? []).map((row: any) => ({ book_id: bookId, [foreignKey]: row.id, source, confidence: values.find((item) => slugify(item.value) === row.slug)?.confidence }));
+  const links = (data ?? []).map((row: any) => ({ book_id: bookId, [foreignKey]: row.id, source, confidence: values.find((item) => (item.normalizedSlug ?? slugify(item.value)) === row.slug)?.confidence }));
   if (links.length) await supabase.from(linkTable).upsert(links);
 }
 
@@ -184,8 +195,18 @@ async function saveContentWarnings(bookId: string, userId: string | undefined, v
   if (links.length) await supabase.from("book_content_warnings").upsert(links);
 }
 
+async function clearPreviousAISuggestions(bookId: string) {
+  if (!supabase) return;
+  await Promise.allSettled([
+    supabase.from("book_tropes").delete().eq("book_id", bookId).eq("source", "ai_inferred"),
+    supabase.from("book_moods").delete().eq("book_id", bookId).eq("source", "ai_inferred"),
+    supabase.from("book_content_warnings").delete().eq("book_id", bookId).eq("source", "ai_inferred"),
+    supabase.from("book_ai_suggestions").delete().eq("book_id", bookId).eq("source", "ai_inferred"),
+  ]);
+}
+
 function mergeValues(current: string[], suggestions: InferredMetadataValue[]) {
-  return Array.from(new Set([...current, ...suggestions.filter((item) => item.confidence >= 0.34).map((item) => item.value)]));
+  return Array.from(new Set([...current, ...suggestions.filter((item) => item.confidence >= 0.75).map((item) => item.value)]));
 }
 
 function metadataStatus(book: Book, ai?: BookAIEnrichment) {
@@ -201,9 +222,9 @@ function metadataStatus(book: Book, ai?: BookAIEnrichment) {
 
 function aiToSuggestionRows(bookId: string, userId: string | null, ai: BookAIEnrichment) {
   const rows: Array<Record<string, unknown>> = [];
-  const addList = (fieldName: string, values: InferredMetadataValue[]) => values.forEach((value) => rows.push(suggestionRow(bookId, userId, fieldName, value)));
+  const addList = (fieldName: string, values: InferredMetadataValue[]) => values.filter((value) => value.confidence >= 0.5).forEach((value) => rows.push(suggestionRow(bookId, userId, fieldName, value)));
   const addOne = (fieldName: string, value?: InferredMetadataValue) => {
-    if (value) rows.push(suggestionRow(bookId, userId, fieldName, value));
+    if (value && value.confidence >= 0.5) rows.push(suggestionRow(bookId, userId, fieldName, value));
   };
   addList("genres", ai.genres);
   addList("tropes", ai.tropes);
