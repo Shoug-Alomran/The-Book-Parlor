@@ -98,8 +98,8 @@ export const bookService = {
     if (updates.currentPage !== undefined) row.current_page = updates.currentPage;
     if (updates.startDate !== undefined) row.start_date = updates.startDate;
     if (updates.finishDate !== undefined) row.finish_date = updates.finishDate;
-    if (updates.selectedEdition !== undefined) row.selected_edition = updates.selectedEdition;
     if (updates.selectedEdition?.databaseId) row.edition_id = updates.selectedEdition.databaseId;
+    if (updates.selectedEdition !== undefined) row.selected_edition = updates.selectedEdition;
 
     const { data, error } = await supabase
       .from("user_books")
@@ -109,18 +109,31 @@ export const bookService = {
       .select("*, books(*)")
       .single();
     if (error) {
-      if (updates.selectedEdition?.databaseId && isMissingColumnError(error)) {
-        const withoutEditionId = { ...row };
-        delete withoutEditionId.edition_id;
+      if (updates.selectedEdition && isMissingColumnError(error)) {
+        const withoutSelectedEdition = { ...row };
+        delete withoutSelectedEdition.selected_edition;
         const retry = await supabase
           .from("user_books")
-          .update(withoutEditionId)
+          .update(withoutSelectedEdition)
           .eq("id", userBookId)
           .eq("user_id", userData.user.id)
           .select("*, books(*)")
           .single();
-        if (!retry.error) return mapUserBookRow(retry.data);
-        if (isMissingColumnError(retry.error)) {
+        if (!retry.error) {
+          const mapped = mapUserBookRow(retry.data);
+          return updates.selectedEdition ? { ...mapped, selectedEdition: updates.selectedEdition } : mapped;
+        }
+        if (updates.selectedEdition.databaseId && isMissingColumnError(retry.error)) {
+          const editionJsonOnly = { ...row };
+          delete editionJsonOnly.edition_id;
+          const jsonRetry = await supabase
+            .from("user_books")
+            .update(editionJsonOnly)
+            .eq("id", userBookId)
+            .eq("user_id", userData.user.id)
+            .select("*, books(*)")
+            .single();
+          if (!jsonRetry.error) return mapUserBookRow(jsonRetry.data);
           console.error("Book Parlor edition columns missing", error, retry.error);
           throw new Error("edition_schema_missing");
         }
