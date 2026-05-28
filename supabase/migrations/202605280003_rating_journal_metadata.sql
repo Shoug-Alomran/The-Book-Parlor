@@ -1,0 +1,16 @@
+alter table ratings add column if not exists season_vibes text[] default '{}';
+alter table ratings add column if not exists formats text[] default '{}';
+alter table ratings add column if not exists reread_opinion text;
+alter table ratings add column if not exists adaptation_types text[] default '{}';
+alter table ratings add column if not exists watched_adaptation boolean default false;
+alter table ratings add column if not exists plan_to_watch boolean default false;
+alter table ratings add column if not exists adaptation_preference text;
+alter table ratings add column if not exists adaptation_notes text;
+alter table ratings add column if not exists hype_rating text;
+alter table ratings add column if not exists pov_type text;
+alter table ratings add column if not exists pov_count text;
+alter table ratings add column if not exists trope_tags text[] default '{}';
+alter table ratings add column if not exists playlist jsonb default '[]';
+alter table ratings add column if not exists series_type text;
+alter table ratings add column if not exists series_number integer;
+alter table ratings add column if not exists standalone_or_series text;

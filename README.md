@@ -46,7 +46,13 @@ The app still runs without environment variables using demo data.
 
 ## Supabase
 
-Apply the migration in `supabase/migrations/202605280001_initial_schema.sql` through the Supabase SQL editor or Supabase CLI.
+Apply the migrations in order through the Supabase SQL editor or Supabase CLI:
+
+1. `supabase/migrations/202605280001_initial_schema.sql`
+2. `supabase/migrations/202605280002_function_ready.sql`
+3. `supabase/migrations/202605280003_rating_journal_metadata.sql`
+
+The second migration makes the app ready for real use by adding external book IDs, persisted trope/mood arrays, and automatic profile creation after sign up.
 
 The schema includes:
 

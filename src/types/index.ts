@@ -28,6 +28,7 @@ export type RatingGenre =
 
 export type Book = {
   id: string;
+  externalId?: string;
   title: string;
   subtitle?: string;
   authors: string[];
@@ -74,6 +75,41 @@ export type Rating = {
   isPublic: boolean;
 };
 
+export type SeasonVibe = "Spring" | "Summer" | "Autumn" | "Winter";
+export type ReadingFormat = "Physical Book" | "eBook" | "Audiobook";
+export type RereadOpinion = "yes" | "no" | "unsure";
+export type AdaptationType = "Movie" | "TV Show" | "Anime" | "Graphic Novel" | "None";
+export type HypeRating = "Overhyped" | "Slightly Overhyped" | "Appropriately Rated" | "Underrated" | "Criminally Underrated";
+export type PovType = "1st Person" | "2nd Person" | "3rd Person";
+export type PovCount = "Single POV" | "Dual POV" | "Multiple POV";
+export type SeriesType = "Standalone" | "Duology" | "Trilogy" | "Series" | "Novella" | "Anthology";
+
+export type PlaylistSong = {
+  id: string;
+  title: string;
+  artist: string;
+  spotifyUrl?: string;
+};
+
+export type RatingJournal = {
+  seasonVibes: SeasonVibe[];
+  formats: ReadingFormat[];
+  rereadOpinion: RereadOpinion;
+  adaptationTypes: AdaptationType[];
+  watchedAdaptation: boolean;
+  planToWatch: boolean;
+  adaptationPreference: "adaptation was better" | "book was better" | "both hit differently" | "";
+  adaptationNotes: string;
+  hypeRating: HypeRating;
+  povType: PovType;
+  povCount: PovCount;
+  tropeTags: string[];
+  playlist: PlaylistSong[];
+  seriesType: SeriesType;
+  seriesNumber?: number;
+  standaloneOrSeries: "standalone" | "series";
+};
+
 export type Review = {
   id: string;
   bookId: string;
@@ -98,10 +134,11 @@ export type BookcaseTheme = "cafe" | "dark-academia" | "fantasy-forest" | "cozy-
 export type Bookcase = {
   id: string;
   name: string;
-  type: "read" | "purchased" | "tbr" | "favorites" | "owned-unread";
+  type: "read" | "purchased" | "tbr" | "favorites" | "owned-unread" | "custom" | "trope";
   theme: BookcaseTheme;
   shelfColor: string;
   background: string;
   decor: string[];
   visibility: "public" | "private";
+  filterTrope?: string;
 };

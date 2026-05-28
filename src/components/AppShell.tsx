@@ -1,12 +1,14 @@
 import { AnimatePresence, motion } from "framer-motion";
-import { BarChart3, BookHeart, BookOpen, BookOpenCheck, Home, LibraryBig, Search, Settings, Sparkles, Target, UserRound } from "lucide-react";
+import { BarChart3, BookHeart, BookOpen, BookOpenCheck, LogOut, Home, LibraryBig, Search, Settings, Sparkles, Tags, Target, UserRound } from "lucide-react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
+import { authService } from "../services/authService";
 
 const navItems = [
   { to: "/", label: "Home", icon: Home },
   { to: "/my-books", label: "My Books", icon: BookOpenCheck },
   { to: "/bookcases", label: "Bookcases", icon: LibraryBig },
+  { to: "/trope-bookcase", label: "Trope Cases", icon: Tags },
   { to: "/discover", label: "Discover", icon: Sparkles },
   { to: "/search", label: "Search", icon: Search },
   { to: "/goals", label: "Goals", icon: Target },
@@ -17,11 +19,21 @@ const navItems = [
 
 export function AppShell() {
   const [dark, setDark] = useState(false);
+  const [userEmail, setUserEmail] = useState<string | null>(null);
   const location = useLocation();
 
   useEffect(() => {
     document.documentElement.classList.toggle("dark", dark);
   }, [dark]);
+
+  useEffect(() => {
+    authService.getUser().then((user) => setUserEmail(user?.email ?? null));
+  }, [location.pathname]);
+
+  const signOut = async () => {
+    await authService.signOut();
+    setUserEmail(null);
+  };
 
   return (
     <div className="min-h-screen pb-24 lg:pb-0">
@@ -53,9 +65,16 @@ export function AppShell() {
             ))}
           </nav>
         </div>
-        <button type="button" onClick={() => setDark((value) => !value)} className="btn-soft w-full">
-          {dark ? "Morning cafe" : "Late-night mode"}
-        </button>
+        <div className="grid gap-2">
+          {userEmail ? (
+            <button type="button" onClick={signOut} className="btn-soft w-full"><LogOut size={16} />Log out</button>
+          ) : (
+            <NavLink to="/auth" className="btn-primary w-full">Log in</NavLink>
+          )}
+          <button type="button" onClick={() => setDark((value) => !value)} className="btn-soft w-full">
+            {dark ? "Morning cafe" : "Late-night mode"}
+          </button>
+        </div>
       </aside>
 
       <main className="mx-auto max-w-7xl px-4 py-5 lg:ml-80 lg:px-8">
@@ -64,9 +83,12 @@ export function AppShell() {
             <BookOpen size={22} />
             The Book Parlor
           </NavLink>
-          <button type="button" onClick={() => setDark((value) => !value)} className="btn-soft px-3">
-            {dark ? "Light" : "Dark"}
-          </button>
+          <div className="flex gap-2">
+            <NavLink to={userEmail ? "/profile" : "/auth"} className="btn-soft px-3">{userEmail ? "Profile" : "Log in"}</NavLink>
+            <button type="button" onClick={() => setDark((value) => !value)} className="btn-soft px-3">
+              {dark ? "Light" : "Dark"}
+            </button>
+          </div>
         </div>
         <AnimatePresence mode="wait">
           <motion.div
@@ -82,7 +104,7 @@ export function AppShell() {
       </main>
 
       <nav className="fixed bottom-3 left-3 right-3 z-40 grid grid-cols-5 rounded-3xl border border-white/50 bg-white/75 p-2 shadow-glow backdrop-blur-xl dark:border-white/10 dark:bg-espresso/80 lg:hidden">
-        {navItems.slice(0, 5).map(({ to, label, icon: Icon }) => (
+        {navItems.filter((item) => ["/", "/my-books", "/bookcases", "/trope-bookcase", "/search"].includes(item.to)).map(({ to, label, icon: Icon }) => (
           <NavLink key={to} to={to} className={({ isActive }) => `flex flex-col items-center gap-1 rounded-2xl px-2 py-2 text-[11px] font-bold ${isActive ? "bg-espresso text-cream dark:bg-gold dark:text-espresso" : "text-mocha dark:text-cream/75"}`}>
             <Icon size={18} />
             {label}

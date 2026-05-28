@@ -1,18 +1,22 @@
 import { Barcode, Camera, ImagePlus, Plus, Search } from "lucide-react";
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { BookCard } from "../components/BookCard";
 import { PageHeader } from "../components/PageHeader";
 import { SkeletonCard } from "../components/SkeletonCard";
 import { TropeChips } from "../components/TropeChips";
+import { ownershipStatuses, readingStatuses } from "../data/constants";
 import { bookService } from "../services/bookService";
 import { tropeDetectionService } from "../services/tropeDetectionService";
-import type { Book } from "../types";
+import type { Book, OwnershipStatus, ReadingStatus } from "../types";
 
 export function SearchPage() {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<Book[]>([]);
   const [loading, setLoading] = useState(false);
   const [toast, setToast] = useState("");
+  const [readingStatus, setReadingStatus] = useState<ReadingStatus>("Want to Read");
+  const [ownershipStatus, setOwnershipStatus] = useState<OwnershipStatus>("Not Owned");
 
   const search = async () => {
     setLoading(true);
@@ -22,8 +26,12 @@ export function SearchPage() {
   };
 
   const save = async (book: Book) => {
-    await bookService.saveBook(book, { readingStatus: "Want to Read", ownershipStatus: "Not Owned" });
-    setToast(`${book.title} was added with suggested tropes.`);
+    try {
+      await bookService.saveBook(book, { readingStatus, ownershipStatus });
+      setToast(`${book.title} was added to your library.`);
+    } catch (error) {
+      setToast(error instanceof Error ? error.message : "Could not save this book.");
+    }
     window.setTimeout(() => setToast(""), 2600);
   };
 
@@ -48,6 +56,14 @@ export function SearchPage() {
             <button key={label as string} className="btn-soft justify-start"><Icon size={18} />{label as string}</button>
           ))}
         </div>
+        <div className="mt-4 grid gap-3 md:grid-cols-2">
+          <select value={readingStatus} onChange={(event) => setReadingStatus(event.target.value as ReadingStatus)} className="rounded-2xl border-0 bg-white/70 p-3 font-bold outline-none dark:bg-white/10">
+            {readingStatuses.map((status) => <option key={status}>{status}</option>)}
+          </select>
+          <select value={ownershipStatus} onChange={(event) => setOwnershipStatus(event.target.value as OwnershipStatus)} className="rounded-2xl border-0 bg-white/70 p-3 font-bold outline-none dark:bg-white/10">
+            {ownershipStatuses.map((status) => <option key={status}>{status}</option>)}
+          </select>
+        </div>
       </div>
       {toast && <div className="fixed right-5 top-5 z-50 rounded-2xl bg-espresso px-5 py-3 font-bold text-cream shadow-glow dark:bg-gold dark:text-espresso">{toast}</div>}
       <div className="mt-6 grid gap-4 xl:grid-cols-2">
@@ -60,7 +76,10 @@ export function SearchPage() {
               <div className="cozy-card mt-2">
                 <p className="mb-2 text-xs font-black uppercase tracking-[0.2em] text-mocha/70 dark:text-gold">Suggested tags</p>
                 <TropeChips items={[...suggestions.tropes, ...suggestions.moods].slice(0, 6)} />
-                <button type="button" onClick={() => save(book)} className="btn-primary mt-4 w-full">Accept tags and save</button>
+                <div className="mt-4 grid gap-2 sm:grid-cols-2">
+                  <button type="button" onClick={() => save(book)} className="btn-primary w-full">Accept tags and save</button>
+                  <Link to={`/books/${book.id}`} className="btn-soft w-full">Preview detail</Link>
+                </div>
               </div>
             </div>
           );

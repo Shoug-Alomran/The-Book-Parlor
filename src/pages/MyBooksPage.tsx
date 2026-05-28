@@ -28,6 +28,12 @@ export function MyBooksPage() {
       <div className="grid gap-4 xl:grid-cols-2">
         {filtered.map((book) => <BookCard key={book.id} item={book} />)}
       </div>
+      {!filtered.length && (
+        <section className="cozy-card mt-5 text-center">
+          <h2 className="font-serif text-3xl font-bold">Your library is ready for its first book.</h2>
+          <p className="mt-3 text-espresso/70 dark:text-cream/70">Log in, search for a title, then save it with reading and ownership statuses.</p>
+        </section>
+      )}
     </div>
   );
 }

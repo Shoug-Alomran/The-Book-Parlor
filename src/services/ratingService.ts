@@ -1,5 +1,8 @@
 import { ratingTemplates } from "../data/ratingTemplates";
-import type { Rating, RatingGenre } from "../types";
+import { supabase } from "../lib/supabase";
+import type { Book, HypeRating, PlaylistSong, Rating, RatingGenre, RatingJournal, SeriesType, UserBook } from "../types";
+
+const seriesTypes: SeriesType[] = ["Standalone", "Duology", "Trilogy", "Series", "Novella", "Anthology"];
 
 export const ratingService = {
   buildEmptyRating(bookId: string, genre: RatingGenre): Rating {
@@ -9,5 +12,93 @@ export const ratingService = {
   communityAverage(ratings: Rating[]) {
     if (!ratings.length) return 4.3;
     return ratings.reduce((sum, rating) => sum + rating.overall, 0) / ratings.length;
+  },
+  buildEmptyJournal(book?: Book): RatingJournal {
+    const seriesType = this.detectSeriesType(book);
+    return {
+      seasonVibes: [],
+      formats: [],
+      rereadOpinion: "unsure",
+      adaptationTypes: ["None"],
+      watchedAdaptation: false,
+      planToWatch: false,
+      adaptationPreference: "",
+      adaptationNotes: "",
+      hypeRating: "Appropriately Rated",
+      povType: "3rd Person",
+      povCount: "Single POV",
+      tropeTags: book?.tropes ?? [],
+      playlist: [],
+      seriesType,
+      seriesNumber: undefined,
+      standaloneOrSeries: seriesType === "Standalone" || seriesType === "Novella" || seriesType === "Anthology" ? "standalone" : "series",
+    };
+  },
+  detectSeriesType(book?: Book): SeriesType {
+    const text = `${book?.title ?? ""} ${book?.subtitle ?? ""} ${book?.description ?? ""} ${(book?.categories ?? []).join(" ")}`.toLowerCase();
+    if (/\bnovella\b/.test(text)) return "Novella";
+    if (/\bantholog(y|ies)\b|short stories/.test(text)) return "Anthology";
+    if (/\bduology\b|book 2 of 2|two[- ]book/.test(text)) return "Duology";
+    if (/\btrilogy\b|book 3 of 3|three[- ]book/.test(text)) return "Trilogy";
+    if (/\bseries\b|book [0-9]+|#[0-9]+|volume [0-9]+|vol\. [0-9]+/.test(text)) return "Series";
+    return "Standalone";
+  },
+  async saveJournalRating(input: {
+    userBook: UserBook;
+    genre: RatingGenre;
+    values: Record<string, number>;
+    journal: RatingJournal;
+    publicReview?: string;
+    privateNotes?: string;
+  }) {
+    if (!supabase) return;
+    const { data: userData, error: userError } = await supabase.auth.getUser();
+    if (userError || !userData.user) throw new Error("Please log in before saving a rating.");
+    const overall = input.values.Overall ?? 0;
+    const { error } = await supabase.from("ratings").upsert(
+      {
+        user_id: userData.user.id,
+        book_id: input.userBook.book.id,
+        rating_genre: input.genre,
+        overall,
+        rating_data: input.values,
+        would_read_again: input.journal.rereadOpinion === "yes",
+        is_public: true,
+        season_vibes: input.journal.seasonVibes,
+        formats: input.journal.formats,
+        reread_opinion: input.journal.rereadOpinion,
+        adaptation_types: input.journal.adaptationTypes,
+        watched_adaptation: input.journal.watchedAdaptation,
+        plan_to_watch: input.journal.planToWatch,
+        adaptation_preference: input.journal.adaptationPreference,
+        adaptation_notes: input.journal.adaptationNotes,
+        hype_rating: input.journal.hypeRating,
+        pov_type: input.journal.povType,
+        pov_count: input.journal.povCount,
+        trope_tags: input.journal.tropeTags,
+        playlist: input.journal.playlist,
+        series_type: input.journal.seriesType,
+        series_number: input.journal.seriesNumber,
+        standalone_or_series: input.journal.standaloneOrSeries,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "user_id,book_id" },
+    );
+    if (error) throw error;
+
+    await supabase
+      .from("user_books")
+      .update({
+        would_read_again: input.journal.rereadOpinion === "yes",
+        private_notes: input.privateNotes,
+        format: input.journal.formats[0] === "Physical Book" ? "Physical book" : input.journal.formats[0],
+        updated_at: new Date().toISOString(),
+      })
+      .eq("id", input.userBook.id);
+  },
+  seriesTypes,
+  hypeRatings: ["Overhyped", "Slightly Overhyped", "Appropriately Rated", "Underrated", "Criminally Underrated"] as HypeRating[],
+  playlistSong(title = "", artist = "", spotifyUrl = ""): PlaylistSong {
+    return { id: crypto.randomUUID(), title, artist, spotifyUrl };
   },
 };
