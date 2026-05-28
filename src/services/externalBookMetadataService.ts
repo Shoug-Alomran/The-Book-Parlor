@@ -128,7 +128,10 @@ export const externalBookMetadataService = {
     });
     if (!supabase) return enriched;
     const { error } = await supabase.from("books").upsert(bookToBookRow(enriched));
-    if (error) throw error;
+    if (error) {
+      const fallback = await supabase.from("books").upsert(bookToBaseBookRow(enriched));
+      if (fallback.error) throw fallback.error;
+    }
     return enriched;
   },
 };
@@ -184,6 +187,25 @@ export function bookToBookRow(book: Book) {
     tropes: book.tropes,
     moods: book.moods,
     content_warnings: book.contentWarnings ?? [],
+  };
+}
+
+export function bookToBaseBookRow(book: Book) {
+  return {
+    id: book.id,
+    title: book.title,
+    subtitle: book.subtitle,
+    authors: book.authors,
+    description: book.description,
+    cover_url: book.coverUrl,
+    isbn_10: book.isbn10,
+    isbn_13: book.isbn13,
+    page_count: book.pageCount,
+    publisher: book.publisher,
+    published_year: book.publishedYear,
+    categories: book.categories,
+    language: book.language,
+    source: book.source,
   };
 }
 

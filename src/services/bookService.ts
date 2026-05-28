@@ -1,7 +1,7 @@
 import { isUuid } from "../lib/ids";
 import { supabase } from "../lib/supabase";
 import type { Book, OwnershipStatus, ReadingStatus, UserBook } from "../types";
-import { bookToBookRow, externalBookMetadataService, getCachedExternalBook } from "./externalBookMetadataService";
+import { externalBookMetadataService, getCachedExternalBook } from "./externalBookMetadataService";
 
 export const bookService = {
   async searchBooks(query: string): Promise<Book[]> {
@@ -58,9 +58,6 @@ export const bookService = {
     await ensureProfileForUser(userData.user);
 
     const enriched = await externalBookMetadataService.upsertBookFromExternalMetadata(book);
-
-    const { error: bookError } = await supabase.from("books").upsert(bookToBookRow(enriched));
-    if (bookError) throw bookError;
 
     const { data: existingUserBook } = await supabase
       .from("user_books")
