@@ -19,18 +19,16 @@ export function DiscoverPage() {
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
-  const localMatches = useMemo(() => {
-    if (!activeFilter) return [];
-    return externalMatches.filter((book) => bookMatchesFilter(book, activeFilter.label));
-  }, [activeFilter, externalMatches]);
-
-  const visibleBooks = useMemo(() => dedupeBooks([...localMatches, ...externalMatches]), [externalMatches, localMatches]);
+  const visibleBooks = useMemo(() => dedupeBooks(externalMatches), [externalMatches]);
 
   useEffect(() => {
     setLoading(true);
-    bookService.searchBooks("new popular fiction")
-      .then(setExternalMatches)
-      .catch(() => setMessage("Could not load discovery books right now. Try a mood or trope search."))
+    bookService.discoverBooks()
+      .then((books) => {
+        setExternalMatches(books);
+        if (!books.length) setMessage("Could not load discovery books right now. Try Search or tap a mood.");
+      })
+      .catch(() => setMessage("Could not load discovery books right now. Try Search or tap a mood."))
       .finally(() => setLoading(false));
   }, []);
 
@@ -42,9 +40,10 @@ export function DiscoverPage() {
     setLoading(true);
     try {
       const books = await bookService.searchBooks(buildDiscoveryQuery(label, kind));
-      setExternalMatches(books.filter((book) => bookMatchesFilter(book, label) || kind === "shelf"));
+      setExternalMatches(books);
+      if (!books.length) setMessage("No live metadata matches came back for that mood yet. Try another tag or use Search.");
     } catch {
-      setMessage("Could not fetch more matches right now, so showing local recommendations.");
+      setMessage("Could not fetch live matches right now. Try another tag or use Search.");
     } finally {
       setLoading(false);
     }
@@ -82,8 +81,8 @@ export function DiscoverPage() {
           </div>
           {!loading && !visibleBooks.length && (
             <div className="rounded-2xl bg-white/55 p-5 text-center dark:bg-white/10">
-              <h3 className="font-serif text-2xl font-bold">No matches yet.</h3>
-              <p className="mt-2 text-sm text-espresso/70 dark:text-cream/70">Try another mood, trope, or smart shelf.</p>
+              <h3 className="font-serif text-2xl font-bold">No live books loaded yet.</h3>
+              <p className="mt-2 text-sm text-espresso/70 dark:text-cream/70">Try another mood, trope, smart shelf, or search for a title directly.</p>
             </div>
           )}
         </div>

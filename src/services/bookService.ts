@@ -6,14 +6,19 @@ import { bookToBookRow, externalBookMetadataService, getCachedExternalBook } fro
 export const bookService = {
   async searchBooks(query: string): Promise<Book[]> {
     if (!query.trim()) return [];
-    try {
-      const googleBooks = await externalBookMetadataService.searchGoogleBooks(query);
-      if (googleBooks.length >= 3) return googleBooks;
-      const openLibraryBooks = await externalBookMetadataService.searchOpenLibrary(query);
-      return [...googleBooks, ...openLibraryBooks].slice(0, 12);
-    } catch {
-      return [];
-    }
+    const [googleResult, openLibraryResult] = await Promise.allSettled([
+      externalBookMetadataService.searchGoogleBooks(query),
+      externalBookMetadataService.searchOpenLibrary(query),
+    ]);
+    const googleBooks = googleResult.status === "fulfilled" ? googleResult.value : [];
+    const openLibraryBooks = openLibraryResult.status === "fulfilled" ? openLibraryResult.value : [];
+    return dedupeBooks([...googleBooks, ...openLibraryBooks]).slice(0, 12);
+  },
+
+  async discoverBooks(): Promise<Book[]> {
+    const queries = ["popular fiction", "new romance fiction", "fantasy bestseller", "mystery thriller"];
+    const results = await Promise.allSettled(queries.map((query) => this.searchBooks(query)));
+    return dedupeBooks(results.flatMap((result) => (result.status === "fulfilled" ? result.value : []))).slice(0, 18);
   },
 
   async getBook(bookId: string): Promise<Book | undefined> {
@@ -79,6 +84,16 @@ export const bookService = {
     return enriched;
   },
 };
+
+function dedupeBooks(books: Book[]) {
+  const seen = new Set<string>();
+  return books.filter((book) => {
+    const key = book.isbn13 ?? book.googleBooksId ?? book.openlibraryWorkKey ?? book.externalId ?? `${book.title}-${book.authors.join(",")}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
 
 function mapBookRow(row: any): Book {
   return {
