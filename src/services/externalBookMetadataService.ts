@@ -130,7 +130,10 @@ export const externalBookMetadataService = {
     const { error } = await supabase.from("books").upsert(bookToBookRow(enriched));
     if (error) {
       const fallback = await supabase.from("books").upsert(bookToBaseBookRow(enriched));
-      if (fallback.error) throw fallback.error;
+      if (fallback.error) {
+        console.error("Book Parlor book metadata save failed", error, fallback.error);
+        throw new Error("book_save_failed");
+      }
     }
     return enriched;
   },

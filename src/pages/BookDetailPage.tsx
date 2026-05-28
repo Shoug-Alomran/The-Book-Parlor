@@ -38,10 +38,15 @@ export function BookDetailPage() {
       showToast(action === "purchased" ? "Marked as purchased and added to your library." : "Added to your Want to Read shelf.", "success");
     } catch (error) {
       const code = error instanceof Error ? error.message : "save_failed";
+      console.error("Book Parlor shelf action failed", error);
       const message = code === "auth_required"
         ? "Sign in to add books to your reading room."
         : code === "profile_unavailable"
           ? "Your account is signed in, but your reader profile is not ready yet. Please refresh and try again."
+          : code === "book_save_failed"
+            ? "We could not save this book’s metadata. Please search for the book again and try adding it from Search."
+            : code === "library_save_failed"
+              ? "We could not add this book to your library. Please make sure the Supabase migrations are applied."
           : "We could not update your shelf just now. Please try again.";
       showToast(message, "error");
     } finally {

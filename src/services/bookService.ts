@@ -78,24 +78,47 @@ export const bookService = {
       },
       { onConflict: "user_id,book_id" },
     );
-    if (userBookError) throw userBookError;
+    if (userBookError) {
+      console.error("Book Parlor save failed at user_books upsert", userBookError);
+      throw new Error("library_save_failed");
+    }
     return enriched;
   },
 };
 
 async function ensureProfileForUser(user: { id: string; email?: string | null; user_metadata?: Record<string, any> }) {
   if (!supabase) return;
-  const { data: profile } = await supabase.from("profiles").select("id").eq("id", user.id).maybeSingle();
+  const { data: profile, error: profileLookupError } = await supabase.from("profiles").select("id").eq("id", user.id).maybeSingle();
+  if (profileLookupError) {
+    console.error("Book Parlor profile lookup failed", profileLookupError);
+    throw new Error("profile_unavailable");
+  }
   if (profile) return;
 
-  const emailPrefix = user.email?.split("@")[0] ?? "reader";
+  const emailPrefix = sanitizeUsername(user.email?.split("@")[0] ?? "reader");
   const metadata = user.user_metadata ?? {};
+  const preferredUsername = sanitizeUsername(metadata.username ?? emailPrefix);
   const { error } = await supabase.from("profiles").upsert({
     id: user.id,
-    username: metadata.username ?? emailPrefix,
-    display_name: metadata.display_name ?? metadata.username ?? emailPrefix,
+    username: preferredUsername,
+    display_name: metadata.display_name ?? preferredUsername,
   });
-  if (error) throw new Error("profile_unavailable");
+  if (!error) return;
+
+  const retryUsername = `${preferredUsername}-${user.id.slice(0, 8)}`;
+  const retry = await supabase.from("profiles").upsert({
+    id: user.id,
+    username: retryUsername,
+    display_name: metadata.display_name ?? preferredUsername,
+  });
+  if (retry.error) {
+    console.error("Book Parlor profile creation failed", error, retry.error);
+    throw new Error("profile_unavailable");
+  }
+}
+
+function sanitizeUsername(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9_]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "") || "reader";
 }
 
 function dedupeBooks(books: Book[]) {

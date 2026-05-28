@@ -53,6 +53,7 @@ Apply the migrations in order through the Supabase SQL editor or Supabase CLI:
 3. `supabase/migrations/202605280003_rating_journal_metadata.sql`
 4. `supabase/migrations/202605280004_external_metadata_and_rating_aggregates.sql`
 5. `supabase/migrations/202605280005_username_login_rpc.sql`
+6. `supabase/migrations/202605280006_goal_upsert_unique.sql`
 
 The second migration makes the app ready for real use by adding external book IDs, persisted trope/mood arrays, and automatic profile creation after sign up.
 
