@@ -42,11 +42,15 @@ VITE_SUPABASE_ANON_KEY=your-anon-key
 VITE_GOOGLE_BOOKS_API_KEY=optional-google-books-key
 OPENAI_API_KEY=server-side-only
 OPENAI_MODEL=gpt-4.1-mini
+BRAVE_SEARCH_API_KEY=server-side-only-optional
+BING_SEARCH_API_KEY=server-side-only-optional
 ```
 
 The app requires Supabase credentials for account and library persistence. Google Books search works without an API key where the public API allows it, and `VITE_GOOGLE_BOOKS_API_KEY` can be added for more reliable metadata requests.
 
 `OPENAI_API_KEY` must only be configured on the backend/serverless environment. Do not expose it as a `VITE_` variable. The frontend calls `/api/ai/enrich-book`, and that endpoint calls the AI model.
+
+For harder factual metadata recovery, `/api/metadata/search-book-metadata` can use a server-side `BRAVE_SEARCH_API_KEY` or `BING_SEARCH_API_KEY`. That resolver searches factual sources such as publisher, author, library/catalog, ISBN, Google Books, and Open Library pages, then asks OpenAI to extract only sourced facts. It should never infer ISBNs, page counts, publishers, publication dates, or series details without a supporting source.
 
 ## Supabase
 

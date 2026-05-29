@@ -1,7 +1,8 @@
 import { supabase } from "../lib/supabase";
-import type { Book, BookAIEnrichment, BookAISuggestion, BookEnrichmentResult, InferredMetadataValue } from "../types";
+import type { Book, BookAIEnrichment, BookAISuggestion, BookEnrichmentResult, InferredMetadataValue, ResolvedBookFacts, SourcedFact } from "../types";
 import { bookAIService } from "./bookAIService";
 import { externalBookMetadataService, bookToLiveBookRow } from "./externalBookMetadataService";
+import { bookMetadataResolverService } from "./bookMetadataResolverService";
 
 export const bookEnrichmentService = {
   async enrichBook(book: Book): Promise<BookEnrichmentResult> {
@@ -19,18 +20,27 @@ export const bookEnrichmentService = {
       externalSubjects: Array.from(new Set([...(merged.book.externalSubjects ?? []), ...(work.externalSubjects ?? [])])),
       importedMetadata: { ...(merged.book.importedMetadata ?? {}), ...(work.importedMetadata ?? {}) },
     } : merged.book;
-    const editions = await externalBookMetadataService.fetchOpenLibraryEditions(withWork).catch(() => []);
-    const ai = await bookAIService.inferMetadata(withWork);
+    const sourcedBook = addApiFactSources(withWork, google, openLibrary);
+    const editions = await externalBookMetadataService.fetchOpenLibraryEditions(sourcedBook).catch(() => []);
+    const resolver = needsFactualResolver(sourcedBook)
+      ? await bookMetadataResolverService.searchBookMetadata(sourcedBook).catch((error) => ({
+        facts: {},
+        debug: { error: error instanceof Error ? error.message : "Metadata resolver failed." },
+      }))
+      : undefined;
+    const resolvedBook = resolver ? applyResolvedFacts(sourcedBook, resolver.facts, resolver.debug) : sourcedBook;
+    const ai = await bookAIService.inferMetadata(resolvedBook);
     const enriched: Book = {
-      ...withWork,
-      categories: mergeValues(withWork.categories, ai.genres),
-      tropes: mergeValues(withWork.tropes, ai.tropes),
-      moods: mergeValues(withWork.moods, ai.moods),
+      ...resolvedBook,
+      categories: mergeValues(resolvedBook.categories, ai.genres),
+      tropes: mergeValues(resolvedBook.tropes, ai.tropes),
+      moods: mergeValues(resolvedBook.moods, ai.moods),
       importedMetadata: {
-        ...(withWork.importedMetadata ?? {}),
+        ...(resolvedBook.importedMetadata ?? {}),
         enrichment_audit: {
           last_run_at: new Date().toISOString(),
           factual_sources: merged.sources,
+          metadata_resolver: resolver?.debug,
           ai_suggestions_table: "book_ai_suggestions",
         },
         metadata_status: metadataStatus(merged.book, ai),
@@ -207,6 +217,105 @@ async function clearPreviousAISuggestions(bookId: string) {
 
 function mergeValues(current: string[], suggestions: InferredMetadataValue[]) {
   return Array.from(new Set([...current, ...suggestions.filter((item) => item.confidence >= 0.75).map((item) => item.value)]));
+}
+
+function needsFactualResolver(book: Book) {
+  return [
+    !book.description || book.description === "No description is available yet.",
+    !book.pageCount,
+    !book.publisher,
+    !book.isbn13 && !book.isbn10,
+    !book.seriesName,
+    !book.format,
+  ].some(Boolean);
+}
+
+function applyResolvedFacts(book: Book, facts: ResolvedBookFacts, debug?: Record<string, unknown>): Book {
+  const factSources = { ...((book.importedMetadata?.fact_sources as Record<string, SourcedFact | undefined> | undefined) ?? {}) };
+  const next: Book = { ...book };
+  const setIfMissing = <K extends keyof Book>(key: K, fact: SourcedFact<Book[K] extends string | number | undefined ? Exclude<Book[K], undefined> : never> | undefined, options?: { minConfidence?: number; parseYear?: boolean }) => {
+    const minConfidence = options?.minConfidence ?? 0.7;
+    if (!fact || fact.confidence < minConfidence || next[key]) return;
+    (next as any)[key] = fact.value;
+    factSources[String(key)] = fact;
+    if (options?.parseYear && typeof fact.value === "string" && !next.publishedYear) {
+      const year = Number(fact.value.match(/\d{4}/)?.[0]);
+      if (Number.isFinite(year)) next.publishedYear = year;
+    }
+  };
+
+  setIfMissing("pageCount", facts.page_count as SourcedFact<number> | undefined);
+  setIfMissing("format", facts.format as SourcedFact<string> | undefined);
+  setIfMissing("seriesName", facts.series_name as SourcedFact<string> | undefined);
+  setIfMissing("seriesPosition", facts.series_position as SourcedFact<string> | undefined);
+  setIfMissing("publisher", facts.publisher as SourcedFact<string> | undefined);
+  setIfMissing("isbn10", facts.isbn_10 as SourcedFact<string> | undefined);
+  setIfMissing("isbn13", facts.isbn_13 as SourcedFact<string> | undefined);
+  setIfMissing("publishedDate", facts.published_date as SourcedFact<string> | undefined, { parseYear: true });
+  setIfMissing("language", facts.language as SourcedFact<string> | undefined);
+
+  next.importedMetadata = {
+    ...(book.importedMetadata ?? {}),
+    fact_sources: factSources,
+    metadata_resolver: {
+      last_run_at: new Date().toISOString(),
+      debug,
+      facts,
+    },
+  };
+  return next;
+}
+
+function addApiFactSources(book: Book, google?: Book, openLibrary?: Book): Book {
+  const factSources = { ...((book.importedMetadata?.fact_sources as Record<string, SourcedFact | undefined> | undefined) ?? {}) };
+  const add = (key: string, value: string | number | undefined, sourceBook: Book | undefined, source: "Google Books" | "Open Library") => {
+    if (value === undefined || value === null || factSources[key]) return;
+    factSources[key] = {
+      value,
+      source,
+      sourceUrl: sourceUrlFor(sourceBook, source),
+      confidence: 0.9,
+    };
+  };
+  const providerFor = (key: keyof Book, value: string | number | undefined) => {
+    if (value === undefined || value === null) return undefined;
+    if (google?.[key] === value) return { sourceBook: google, source: "Google Books" as const };
+    if (openLibrary?.[key] === value) return { sourceBook: openLibrary, source: "Open Library" as const };
+    return undefined;
+  };
+  ([
+    ["pageCount", book.pageCount],
+    ["format", book.format],
+    ["isbn10", book.isbn10],
+    ["isbn13", book.isbn13],
+    ["publisher", book.publisher],
+    ["publishedDate", book.publishedDate],
+    ["language", book.language],
+    ["seriesName", book.seriesName],
+    ["seriesPosition", book.seriesPosition],
+  ] as Array<[keyof Book & string, string | number | undefined]>).forEach(([key, value]) => {
+    const provider = providerFor(key as keyof Book, value);
+    if (provider) add(key, value, provider.sourceBook, provider.source);
+  });
+  return {
+    ...book,
+    importedMetadata: {
+      ...(book.importedMetadata ?? {}),
+      fact_sources: factSources,
+    },
+  };
+}
+
+function sourceUrlFor(book: Book | undefined, source: "Google Books" | "Open Library") {
+  if (source === "Google Books") {
+    const metadata = book?.importedMetadata ?? {};
+    return typeof metadata.canonicalVolumeLink === "string" ? metadata.canonicalVolumeLink : typeof metadata.infoLink === "string" ? metadata.infoLink : undefined;
+  }
+  const edition = book?.openlibraryEditionKey;
+  const work = book?.openlibraryWorkKey;
+  if (edition) return `https://openlibrary.org${edition.startsWith("/") ? edition : `/books/${edition}`}`;
+  if (work) return `https://openlibrary.org${work}`;
+  return undefined;
 }
 
 function metadataStatus(book: Book, ai?: BookAIEnrichment) {

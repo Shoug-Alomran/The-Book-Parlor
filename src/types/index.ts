@@ -61,6 +61,25 @@ export type Book = {
   contentWarnings?: string[];
 };
 
+export type SourcedFact<T = string | number> = {
+  value: T;
+  source: string;
+  sourceUrl?: string;
+  confidence: number;
+};
+
+export type ResolvedBookFacts = {
+  page_count?: SourcedFact<number>;
+  format?: SourcedFact<string>;
+  series_name?: SourcedFact<string>;
+  series_position?: SourcedFact<string | number>;
+  publisher?: SourcedFact<string>;
+  isbn_10?: SourcedFact<string>;
+  isbn_13?: SourcedFact<string>;
+  published_date?: SourcedFact<string>;
+  language?: SourcedFact<string>;
+};
+
 export type InferredMetadataValue = {
   value: string;
   normalizedSlug?: string;

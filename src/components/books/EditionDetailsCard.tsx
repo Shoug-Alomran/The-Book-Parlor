@@ -1,5 +1,5 @@
 import { BookCopy } from "lucide-react";
-import type { Book, BookEdition } from "../../types";
+import type { Book, BookEdition, SourcedFact } from "../../types";
 
 type Props = {
   book: Book;
@@ -13,16 +13,18 @@ export function EditionDetailsCard({ book, selectedEdition, editions = [], switc
   const metadata = book.importedMetadata ?? {};
   const pageCountVaries = Boolean(metadata.page_count_varies_by_edition || (metadata.enrichment_audit as any)?.page_count_varies_by_edition);
   const current = selectedEdition ?? bookToEdition(book);
+  const sourceFacts = (metadata.fact_sources ?? {}) as Record<string, SourcedFact | undefined>;
   const rows = [
-    ["Edition title", current.editionTitle],
-    ["Format", current.format ?? "Unknown"],
-    ["ISBN-10", current.isbn10 ?? "Unknown"],
-    ["ISBN-13", current.isbn13 ?? "Unknown"],
-    ["Page count", pageCountVaries && !current.pageCount ? "Page count varies by edition" : current.pageCount?.toString() ?? "Unknown"],
-    ["Language", current.language ?? "Unknown"],
-    ["Publisher", current.publisher ?? "Unknown"],
-    ["Published date", current.publishedDate ?? current.publishedYear?.toString() ?? "Unknown"],
-    ["Source", sourceLabel(current.source)],
+    { label: "Edition title", value: current.editionTitle },
+    { label: "Format", value: current.format ?? "Unknown", source: sourceFacts.format },
+    { label: "ISBN-10", value: current.isbn10 ?? "Unknown", source: sourceFacts.isbn10 },
+    { label: "ISBN-13", value: current.isbn13 ?? "Unknown", source: sourceFacts.isbn13 },
+    { label: "Page count", value: pageCountVaries && !current.pageCount ? "Page count varies by edition" : current.pageCount?.toString() ?? "Unknown", source: sourceFacts.pageCount },
+    { label: "Language", value: current.language ?? "Unknown", source: sourceFacts.language },
+    { label: "Publisher", value: current.publisher ?? "Unknown", source: sourceFacts.publisher },
+    { label: "Published date", value: current.publishedDate ?? current.publishedYear?.toString() ?? "Unknown", source: sourceFacts.publishedDate },
+    { label: "Series", value: book.seriesName ? `${book.seriesPosition ? `Book ${book.seriesPosition} in ` : ""}${book.seriesName}` : "Series status unknown", source: sourceFacts.seriesName },
+    { label: "Source", value: sourceLabel(current.source) },
   ];
   return (
     <section className="cozy-card">
@@ -31,10 +33,14 @@ export function EditionDetailsCard({ book, selectedEdition, editions = [], switc
         <h2 className="font-serif text-3xl font-bold">Edition details</h2>
       </div>
       <div className="grid gap-2 sm:grid-cols-2">
-        {rows.map(([label, value]) => (
-          <div key={label} className="rounded-2xl bg-white/55 p-3 dark:bg-white/10">
-            <div className="text-xs font-black uppercase tracking-[0.16em] text-mocha/70 dark:text-cream/60">{label}</div>
-            <div className="mt-1 font-bold">{value}</div>
+        {rows.map((row) => (
+          <div key={row.label} className="rounded-2xl bg-white/55 p-3 dark:bg-white/10">
+            <div className="text-xs font-black uppercase tracking-[0.16em] text-mocha/70 dark:text-cream/60">{row.label}</div>
+            <div className="mt-1 flex flex-wrap items-center gap-2 font-bold">
+              <span>{row.value}</span>
+              {row.source && <SourceBadge fact={row.source} />}
+            </div>
+            {row.value === "Unknown" && <div className="mt-2 text-xs font-bold text-mocha/60 dark:text-cream/55">Manual edit option</div>}
           </div>
         ))}
       </div>
@@ -57,6 +63,15 @@ export function EditionDetailsCard({ book, selectedEdition, editions = [], switc
       </div>
     </section>
   );
+}
+
+function SourceBadge({ fact }: { fact: SourcedFact }) {
+  const label = `Source: ${fact.source}`;
+  const className = "rounded-full bg-sage/20 px-2 py-1 text-[0.68rem] font-black uppercase tracking-[0.12em] text-mocha/70 dark:bg-sage/30 dark:text-cream/70";
+  if (fact.sourceUrl) {
+    return <a href={fact.sourceUrl} target="_blank" rel="noreferrer" className={className}>{label}</a>;
+  }
+  return <span className={className}>{label}</span>;
 }
 
 function EditionRow({ edition, current = false, switching = false, onSwitch }: { edition: BookEdition; current?: boolean; switching?: boolean; onSwitch?: () => void }) {
