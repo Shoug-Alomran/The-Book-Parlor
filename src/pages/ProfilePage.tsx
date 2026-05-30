@@ -19,6 +19,7 @@ export function ProfilePage() {
   }, []);
 
   const favoriteGenres = Array.from(new Set(books.flatMap((item) => item.book.categories))).slice(0, 4);
+  const achievements = earnedAchievements(books);
 
   return (
     <div>
@@ -33,9 +34,27 @@ export function ProfilePage() {
       </section>
       <section className="cozy-card mb-5">
         <h2 className="font-serif text-3xl font-bold">Achievements</h2>
-        <p className="mt-2 text-sm font-bold text-espresso/70 dark:text-cream/70">Badges will unlock from your real reading activity.</p>
+        {achievements.length ? (
+          <div className="mt-4 grid gap-3 md:grid-cols-3">
+            {achievements.map((badge) => <div key={badge} className="rounded-2xl bg-white/55 p-4 font-bold dark:bg-white/10">{badge}</div>)}
+          </div>
+        ) : (
+          <p className="mt-2 text-sm font-bold text-espresso/70 dark:text-cream/70">Badges will unlock from your real reading activity.</p>
+        )}
       </section>
       <BookcaseShelf bookcase={defaultBookcases[1]} books={books.filter((item) => item.ownershipStatus === "Purchased / Physically Owned")} />
     </div>
   );
+}
+
+function earnedAchievements(books: UserBook[]) {
+  const fantasyReads = books.filter((item) => item.readingStatus === "Read" && item.book.categories.some((genre) => /fantasy/i.test(genre))).length;
+  const slowBurnReads = books.filter((item) => item.readingStatus === "Read" && item.book.tropes.some((trope) => /slow burn/i.test(trope))).length;
+  const ownedUnread = books.filter((item) => item.ownershipStatus === "Purchased / Physically Owned" && item.readingStatus !== "Read").length;
+  return [
+    fantasyReads >= 15 ? "Dragon Tamer" : "",
+    slowBurnReads >= 20 ? "Slow Burn Survivor" : "",
+    ownedUnread >= 100 ? "Book Hoarder" : "",
+    books.some((item) => item.isFavorite) ? "Shelf Curator" : "",
+  ].filter(Boolean);
 }

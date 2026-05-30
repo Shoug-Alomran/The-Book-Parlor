@@ -2,15 +2,15 @@ import { ratingTemplates } from "../data/ratingTemplates";
 import { supabase } from "../lib/supabase";
 import type { Book, HypeRating, PlaylistSong, Rating, RatingGenre, RatingJournal, SeriesType, UserBook } from "../types";
 
-const seriesTypes: SeriesType[] = ["Standalone", "Duology", "Trilogy", "Series", "Novella", "Anthology"];
+const seriesTypes: SeriesType[] = ["Unknown", "Standalone", "Duology", "Trilogy", "Series", "Novella", "Anthology"];
 
 export const ratingService = {
   buildEmptyRating(bookId: string, genre: RatingGenre): Rating {
-    const ratingData = Object.fromEntries(ratingTemplates[genre].map((field) => [field, field === "Overall" ? 4 : 0]));
-    return { id: crypto.randomUUID(), bookId, ratingGenre: genre, overall: 4, ratingData, wouldReadAgain: true, isPublic: true };
+    const ratingData = Object.fromEntries(ratingTemplates[genre].map((field) => [field, 0]));
+    return { id: crypto.randomUUID(), bookId, ratingGenre: genre, overall: 0, ratingData, wouldReadAgain: false, isPublic: true };
   },
   communityAverage(ratings: Rating[]) {
-    if (!ratings.length) return 4.3;
+    if (!ratings.length) return 0;
     return ratings.reduce((sum, rating) => sum + rating.overall, 0) / ratings.length;
   },
   buildEmptyJournal(book?: Book): RatingJournal {
@@ -31,7 +31,7 @@ export const ratingService = {
       playlist: [],
       seriesType,
       seriesNumber: undefined,
-      standaloneOrSeries: seriesType === "Standalone" || seriesType === "Novella" || seriesType === "Anthology" ? "standalone" : "series",
+      standaloneOrSeries: seriesType === "Unknown" ? "unknown" : seriesType === "Standalone" || seriesType === "Novella" || seriesType === "Anthology" ? "standalone" : "series",
     };
   },
   detectSeriesType(book?: Book): SeriesType {
@@ -41,7 +41,7 @@ export const ratingService = {
     if (/\bduology\b|book 2 of 2|two[- ]book/.test(text)) return "Duology";
     if (/\btrilogy\b|book 3 of 3|three[- ]book/.test(text)) return "Trilogy";
     if (/\bseries\b|book [0-9]+|#[0-9]+|volume [0-9]+|vol\. [0-9]+/.test(text)) return "Series";
-    return "Standalone";
+    return "Unknown";
   },
   async saveJournalRating(input: {
     userBook: UserBook;

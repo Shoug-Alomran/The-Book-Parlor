@@ -66,6 +66,38 @@ export const bookEnrichmentService = {
     return externalBookMetadataService.fetchOpenLibraryEditions(book).catch(() => []);
   },
 
+  async saveEdition(book: Book, edition: import("../types").BookEdition) {
+    if (!supabase) return edition;
+    const sourceEditionId = edition.openlibraryEditionKey ?? edition.googleBooksId ?? edition.id;
+    const row = {
+      book_id: book.id,
+      source: edition.source,
+      source_edition_id: sourceEditionId,
+      edition_title: edition.editionTitle,
+      format: edition.format,
+      isbn_10: edition.isbn10,
+      isbn_13: edition.isbn13,
+      page_count: edition.pageCount,
+      language: edition.language,
+      publisher: edition.publisher,
+      published_date: edition.publishedDate,
+      published_year: edition.publishedYear,
+      cover_url: edition.coverUrl,
+      imported_metadata: edition,
+      updated_at: new Date().toISOString(),
+    };
+    const { data, error } = await supabase
+      .from("book_editions")
+      .upsert(row, { onConflict: "book_id,source,source_edition_id" })
+      .select("*")
+      .single();
+    if (error) {
+      console.error("Book Parlor edition save failed", error);
+      throw new Error("edition_save_failed");
+    }
+    return mapEditionRow(data);
+  },
+
   async listAISuggestions(bookId: string, status: "pending" | "accepted" | "rejected" = "pending"): Promise<BookAISuggestion[]> {
     if (!supabase) return [];
     const { data, error } = await supabase
@@ -173,8 +205,8 @@ async function trySaveRelationalSuggestions(book: Book, ai: BookAIEnrichment, so
       saveContentWarnings(book.id, userData.user?.id, ai.content_warnings.filter((item) => item.confidence >= 0.5), source),
     ]);
     return tropesToSave.length;
-  } catch {
-    // The pending/accepted suggestion rows remain intact even if relation tables need a policy update.
+  } catch (error) {
+    console.error("Book Parlor AI relational suggestion save failed", error);
     return 0;
   }
 }
@@ -184,17 +216,24 @@ async function saveNamedLinks(table: "tropes" | "moods", linkTable: "book_tropes
     ? { name: item.value, slug: item.normalizedSlug ?? slugify(item.value), category: item.custom ? "custom_ai" : source }
     : { name: item.value, slug: item.normalizedSlug ?? slugify(item.value) });
   if (!rows.length || !supabase) return;
-  await supabase.from(table).upsert(rows, { onConflict: "slug" });
-  const { data } = await supabase.from(table).select("id, slug").in("slug", rows.map((row) => row.slug));
+  const upsert = await supabase.from(table).upsert(rows, { onConflict: "slug" });
+  if (upsert.error) throw upsert.error;
+  const { data, error } = await supabase.from(table).select("id, slug").in("slug", rows.map((row) => row.slug));
+  if (error) throw error;
   const links = (data ?? []).map((row: any) => ({ book_id: bookId, [foreignKey]: row.id, source, confidence: values.find((item) => (item.normalizedSlug ?? slugify(item.value)) === row.slug)?.confidence }));
-  if (links.length) await supabase.from(linkTable).upsert(links);
+  if (links.length) {
+    const linkUpsert = await supabase.from(linkTable).upsert(links);
+    if (linkUpsert.error) throw linkUpsert.error;
+  }
 }
 
 async function saveContentWarnings(bookId: string, userId: string | undefined, values: InferredMetadataValue[], source: "ai_inferred") {
   if (!values.length || !supabase || !userId) return;
   const rows = values.map((item) => ({ name: item.value, slug: slugify(item.value) }));
-  await supabase.from("content_warnings").upsert(rows, { onConflict: "slug" });
-  const { data } = await supabase.from("content_warnings").select("id, slug").in("slug", rows.map((row) => row.slug));
+  const upsert = await supabase.from("content_warnings").upsert(rows, { onConflict: "slug" });
+  if (upsert.error) throw upsert.error;
+  const { data, error } = await supabase.from("content_warnings").select("id, slug").in("slug", rows.map((row) => row.slug));
+  if (error) throw error;
   const links = (data ?? []).map((row: any) => ({
     book_id: bookId,
     warning_id: row.id,
@@ -202,7 +241,10 @@ async function saveContentWarnings(bookId: string, userId: string | undefined, v
     source,
     confidence: values.find((item) => slugify(item.value) === row.slug)?.confidence,
   }));
-  if (links.length) await supabase.from("book_content_warnings").upsert(links);
+  if (links.length) {
+    const linkUpsert = await supabase.from("book_content_warnings").upsert(links, { onConflict: "book_id,warning_id,user_id,source" });
+    if (linkUpsert.error) throw linkUpsert.error;
+  }
 }
 
 async function clearPreviousAISuggestions(bookId: string) {

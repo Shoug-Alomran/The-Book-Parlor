@@ -1,22 +1,28 @@
 import { useEffect, useMemo, useState } from "react";
 import { PageHeader } from "../components/PageHeader";
 import { bookService } from "../services/bookService";
-import { statsService } from "../services/statsService";
+import { statsService, type RatingStats } from "../services/statsService";
 import type { UserBook } from "../types";
 
-const bars = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug"];
+const bars = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 export function StatsPage() {
   const [books, setBooks] = useState<UserBook[]>([]);
-  useEffect(() => { bookService.getUserBooks().then(setBooks); }, []);
+  const [ratingStats, setRatingStats] = useState<RatingStats>({ averageRating: null, count: 0 });
+  useEffect(() => {
+    bookService.getUserBooks().then(setBooks);
+    statsService.getRatingStats().then(setRatingStats);
+  }, []);
   const stats = useMemo(() => statsService.summarize(books), [books]);
+  const monthlyReads = useMemo(() => statsService.booksReadByMonth(books), [books]);
+  const maxMonth = Math.max(1, ...monthlyReads);
   return (
     <div>
       <PageHeader eyebrow="Stats" title="Your reading, brewed into patterns." description="Books, pages, formats, genres, tropes, moods, ratings, authors, DNF reasons, and emotional extremes." />
       <section className="grid gap-4 md:grid-cols-4">
         {[
           ["Pages read", stats.pagesRead],
-          ["Average rating", "Not enough data yet"],
+          ["Average rating", ratingStats.averageRating === null ? "Not enough data yet" : `${ratingStats.averageRating} (${ratingStats.count})`],
           ["Longest book", stats.longestBook || "Not enough data yet"],
           ["DNF reason", stats.dnfReason],
         ].map(([label, value]) => (
@@ -27,7 +33,7 @@ export function StatsPage() {
         <div className="cozy-card">
           <h2 className="font-serif text-3xl font-bold">Books read by month</h2>
           <div className="mt-5 flex h-72 items-end gap-3">
-            {bars.map((bar) => <div key={bar} className="flex flex-1 flex-col items-center gap-2"><div className="w-full rounded-t-2xl bg-gradient-to-t from-mocha to-gold" style={{ height: books.length ? `${Math.max(12, stats.readCount * 16)}px` : "12px" }} /><span className="text-xs font-bold">{bar}</span></div>)}
+            {bars.map((bar, index) => <div key={bar} className="flex flex-1 flex-col items-center gap-2"><div className="w-full rounded-t-2xl bg-gradient-to-t from-mocha to-gold" style={{ height: `${Math.max(12, (monthlyReads[index] / maxMonth) * 220)}px` }} /><span className="text-xs font-bold">{bar}</span></div>)}
           </div>
         </div>
         <div className="cozy-card">

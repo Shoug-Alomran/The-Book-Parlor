@@ -121,12 +121,35 @@ export function BookDetailPage() {
     }
   };
 
+  const createReview = async (input: { title: string; body: string; hasSpoilers: boolean }) => {
+    if (!book) return;
+    try {
+      await reviewService.createReview({ bookId: book.id, ...input });
+      setReviews(await reviewService.listForBook(book.id));
+      showToast("Review posted.", "success");
+    } catch {
+      showToast("Sign in before posting a review.", "error");
+    }
+  };
+
+  const createComment = async (input: { body: string; hasSpoilers: boolean }) => {
+    if (!book) return;
+    try {
+      await commentService.createComment({ bookId: book.id, ...input });
+      setComments(await commentService.listForBook(book.id));
+      showToast("Comment posted.", "success");
+    } catch {
+      showToast("Sign in before posting a comment.", "error");
+    }
+  };
+
   const switchEdition = async (edition: BookEdition) => {
     if (!book) return;
     try {
       setSwitchingEditionId(edition.id);
       const currentUserBook = userBook ?? await createUserBookForEdition(book);
-      const next = await bookService.updateUserBook(currentUserBook.id, { selectedEdition: edition });
+      const savedEdition = edition.databaseId ? edition : await bookEnrichmentService.saveEdition(book, edition);
+      const next = await bookService.updateUserBook(currentUserBook.id, { selectedEdition: savedEdition });
       setUserBook(next);
       showToast("Your saved edition was updated.", "success");
     } catch (error) {
@@ -215,8 +238,8 @@ export function BookDetailPage() {
         </div>
       </section>
       <div className="mt-6 grid gap-5 lg:grid-cols-2">
-        <ReviewsSection reviews={reviews} />
-        <CommentsSection comments={comments} />
+        <ReviewsSection reviews={reviews} onCreate={createReview} />
+        <CommentsSection comments={comments} onCreate={createComment} />
       </div>
     </div>
   );

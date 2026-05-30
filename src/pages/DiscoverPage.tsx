@@ -6,7 +6,7 @@ import { SkeletonCard } from "../components/SkeletonCard";
 import { TropeChips } from "../components/TropeChips";
 import { moods, smartShelves, tropes } from "../data/constants";
 import { bookService } from "../services/bookService";
-import type { Book } from "../types";
+import type { Book, UserBook } from "../types";
 
 type DiscoveryFilter = {
   label: string;
@@ -16,13 +16,16 @@ type DiscoveryFilter = {
 export function DiscoverPage() {
   const [activeFilter, setActiveFilter] = useState<DiscoveryFilter | null>(null);
   const [externalMatches, setExternalMatches] = useState<Book[]>([]);
+  const [savedBooks, setSavedBooks] = useState<UserBook[]>([]);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState("");
 
   const visibleBooks = useMemo(() => dedupeBooks(externalMatches), [externalMatches]);
+  const savedMatches = useMemo(() => activeFilter ? savedBooks.filter((item) => userBookMatchesFilter(item, activeFilter.label, activeFilter.kind)) : [], [activeFilter, savedBooks]);
 
   useEffect(() => {
     setLoading(true);
+    bookService.getUserBooks().then(setSavedBooks).catch(() => setSavedBooks([]));
     bookService.discoverBooks()
       .then((books) => {
         setExternalMatches(books);
@@ -63,13 +66,22 @@ export function DiscoverPage() {
           <div>
             <p className="text-xs font-black uppercase tracking-[0.24em] text-mocha/70 dark:text-gold">Currently browsing</p>
             <h2 className="font-serif text-3xl font-bold">{activeFilter.label}</h2>
-            <p className="mt-1 text-sm font-semibold text-espresso/65 dark:text-cream/65">{visibleBooks.length} book match{visibleBooks.length === 1 ? "" : "es"} for this mood.</p>
+            <p className="mt-1 text-sm font-semibold text-espresso/65 dark:text-cream/65">{savedMatches.length} saved and {visibleBooks.length} live metadata match{visibleBooks.length === 1 ? "" : "es"}.</p>
           </div>
           <button type="button" onClick={clearFilter} className="btn-soft"><X size={18} />Clear filter</button>
         </section>
       )}
       <section className="grid gap-4 lg:grid-cols-3">
         <div className="cozy-card lg:col-span-2">
+          {activeFilter && (
+            <div className="mb-5">
+              <h2 className="font-serif text-3xl font-bold">From your library</h2>
+              <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                {savedMatches.map((book) => <BookCard key={book.id} item={book} compact />)}
+              </div>
+              {!savedMatches.length && <p className="mt-3 rounded-2xl bg-white/55 p-4 text-sm font-bold text-mocha/70 dark:bg-white/10 dark:text-cream/65">No saved books match this tag yet.</p>}
+            </div>
+          )}
           <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
             <h2 className="font-serif text-3xl font-bold">{activeFilter ? `Books for ${activeFilter.label}` : "Fresh from external book metadata"}</h2>
             {activeFilter && <span className="chip"><Search size={13} />Live metadata search</span>}
@@ -118,6 +130,16 @@ function bookMatchesFilter(book: Book, label: string) {
 
   const aliases = smartShelfAliases(needle);
   return values.some((value) => value.includes(needle) || aliases.some((alias) => value.includes(alias)));
+}
+
+function userBookMatchesFilter(item: UserBook, label: string, kind: DiscoveryFilter["kind"]) {
+  if (kind === "shelf") {
+    const normalized = normalize(label);
+    if (normalized === "owned but unread") return item.ownershipStatus === "Purchased / Physically Owned" && item.readingStatus !== "Read";
+    if (normalized === "comfort reads") return item.book.moods.some((mood) => ["comforting", "cozy", "healing"].includes(normalize(mood)));
+    if (normalized === "cozy reads") return item.book.moods.some((mood) => ["cozy", "comforting"].includes(normalize(mood)));
+  }
+  return bookMatchesFilter(item.book, label);
 }
 
 function buildDiscoveryQuery(label: string, kind: DiscoveryFilter["kind"]) {

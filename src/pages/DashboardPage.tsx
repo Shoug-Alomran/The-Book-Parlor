@@ -5,6 +5,7 @@ import { BookCard } from "../components/BookCard";
 import { PageHeader } from "../components/PageHeader";
 import { ProgressBar } from "../components/ProgressBar";
 import { bookService } from "../services/bookService";
+import { goalService } from "../services/goalService";
 import { statsService } from "../services/statsService";
 import type { UserBook } from "../types";
 import type { LucideIcon } from "lucide-react";
@@ -18,10 +19,14 @@ const statCards: Array<[string, keyof ReturnType<typeof statsService.summarize>,
 
 export function DashboardPage() {
   const [books, setBooks] = useState<UserBook[]>([]);
-  useEffect(() => { bookService.getUserBooks().then(setBooks); }, []);
+  const [yearlyGoal, setYearlyGoal] = useState(0);
+  useEffect(() => {
+    bookService.getUserBooks().then(setBooks);
+    goalService.listGoals().then((goals) => setYearlyGoal(goals.find((goal) => goal.goalType === "yearly_books")?.targetNumber ?? 0));
+  }, []);
   const stats = useMemo(() => statsService.summarize(books), [books]);
   const current = books.find((item) => item.readingStatus === "Currently Reading");
-  const goalProgress = Math.round((stats.readCount / stats.yearlyGoal) * 100);
+  const goalProgress = yearlyGoal ? Math.round((stats.readCount / yearlyGoal) * 100) : 0;
 
   return (
     <div>
@@ -69,9 +74,9 @@ export function DashboardPage() {
         <div className="cozy-card lg:col-span-2">
           <div className="mb-4 flex items-center justify-between">
             <h2 className="font-serif text-3xl font-bold">Yearly goal bookcase</h2>
-            <span className="chip">{stats.readCount}/{stats.yearlyGoal}</span>
+            <span className="chip">{yearlyGoal ? `${stats.readCount}/${yearlyGoal}` : "Set a goal"}</span>
           </div>
-          <ProgressBar value={goalProgress} label="Reading goal" />
+          <ProgressBar value={goalProgress} label={yearlyGoal ? "Reading goal" : "No yearly goal yet"} />
           <div className="mt-5 flex gap-1 overflow-hidden rounded-2xl bg-mocha/20 p-3 dark:bg-white/10">
             {Array.from({ length: 18 }).map((_, index) => (
               <div key={index} className={`h-24 flex-1 rounded-t ${index < Math.round(goalProgress / 6) ? "bg-gradient-to-t from-mocha to-gold" : "bg-white/35 dark:bg-white/10"}`} />

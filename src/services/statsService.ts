@@ -1,4 +1,10 @@
 import type { UserBook } from "../types";
+import { supabase } from "../lib/supabase";
+
+export type RatingStats = {
+  averageRating: number | null;
+  count: number;
+};
 
 export const statsService = {
   summarize(books: UserBook[]) {
@@ -22,8 +28,29 @@ export const statsService = {
       mostReadAuthor: mode(authors) ?? "Not enough data yet",
       mostCommonTrope: mode(tropes) ?? "Not enough data yet",
       moodOfMonth: mode(books.flatMap((item) => item.book.moods)) ?? "Not enough data yet",
-      yearlyGoal: 52,
     };
+  },
+
+  async getRatingStats(): Promise<RatingStats> {
+    if (!supabase) return { averageRating: null, count: 0 };
+    const { data: userData } = await supabase.auth.getUser();
+    if (!userData.user) return { averageRating: null, count: 0 };
+    const { data, error } = await supabase.from("ratings").select("overall").eq("user_id", userData.user.id);
+    if (error || !data?.length) return { averageRating: null, count: 0 };
+    const values = data.map((row: any) => Number(row.overall)).filter(Number.isFinite);
+    if (!values.length) return { averageRating: null, count: 0 };
+    return {
+      averageRating: Math.round((values.reduce((sum, value) => sum + value, 0) / values.length) * 10) / 10,
+      count: values.length,
+    };
+  },
+
+  booksReadByMonth(books: UserBook[], year = new Date().getFullYear()) {
+    return Array.from({ length: 12 }, (_, month) => books.filter((item) => {
+      if (item.readingStatus !== "Read" || !item.finishDate) return false;
+      const date = new Date(item.finishDate);
+      return date.getFullYear() === year && date.getMonth() === month;
+    }).length);
   },
 };
 

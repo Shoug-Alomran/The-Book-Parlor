@@ -197,7 +197,7 @@ export type AdaptationType = "Movie" | "TV Show" | "Anime" | "Graphic Novel" | "
 export type HypeRating = "Overhyped" | "Slightly Overhyped" | "Appropriately Rated" | "Underrated" | "Criminally Underrated";
 export type PovType = "1st Person" | "2nd Person" | "3rd Person";
 export type PovCount = "Single POV" | "Dual POV" | "Multiple POV";
-export type SeriesType = "Standalone" | "Duology" | "Trilogy" | "Series" | "Novella" | "Anthology";
+export type SeriesType = "Unknown" | "Standalone" | "Duology" | "Trilogy" | "Series" | "Novella" | "Anthology";
 
 export type PlaylistSong = {
   id: string;
@@ -222,7 +222,7 @@ export type RatingJournal = {
   playlist: PlaylistSong[];
   seriesType: SeriesType;
   seriesNumber?: number;
-  standaloneOrSeries: "standalone" | "series";
+  standaloneOrSeries: "unknown" | "standalone" | "series";
 };
 
 export type Review = {

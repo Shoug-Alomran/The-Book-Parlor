@@ -170,7 +170,7 @@ export function RatingPage() {
           <div className="mt-4 grid gap-3 md:grid-cols-[1fr_160px_1fr]">
             <select value={journal.seriesType} onChange={(event) => {
               const seriesType = event.target.value as SeriesType;
-              setJournal((current) => ({ ...current, seriesType, standaloneOrSeries: seriesType === "Standalone" || seriesType === "Novella" || seriesType === "Anthology" ? "standalone" : "series" }));
+              setJournal((current) => ({ ...current, seriesType, standaloneOrSeries: seriesType === "Unknown" ? "unknown" : seriesType === "Standalone" || seriesType === "Novella" || seriesType === "Anthology" ? "standalone" : "series" }));
             }} className="rounded-2xl border-0 bg-white/70 p-3 font-bold outline-none dark:bg-white/10">
               {ratingService.seriesTypes.map((type) => <option key={type}>{type}</option>)}
             </select>
