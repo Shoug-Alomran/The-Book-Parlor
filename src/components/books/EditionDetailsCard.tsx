@@ -16,14 +16,14 @@ export function EditionDetailsCard({ book, selectedEdition, editions = [], switc
   const sourceFacts = (metadata.fact_sources ?? {}) as Record<string, SourcedFact | undefined>;
   const rows = [
     { label: "Edition title", value: current.editionTitle },
-    { label: "Format", value: current.format ?? "Unknown", source: sourceFacts.format },
-    { label: "ISBN-10", value: current.isbn10 ?? "Unknown", source: sourceFacts.isbn10 },
-    { label: "ISBN-13", value: current.isbn13 ?? "Unknown", source: sourceFacts.isbn13 },
-    { label: "Page count", value: pageCountVaries && !current.pageCount ? "Page count varies by edition" : current.pageCount?.toString() ?? "Unknown", source: sourceFacts.pageCount },
-    { label: "Language", value: current.language ?? "Unknown", source: sourceFacts.language },
-    { label: "Publisher", value: current.publisher ?? "Unknown", source: sourceFacts.publisher },
-    { label: "Published date", value: current.publishedDate ?? current.publishedYear?.toString() ?? "Unknown", source: sourceFacts.publishedDate },
-    { label: "Series", value: book.seriesName ? `${book.seriesPosition ? `Book ${book.seriesPosition} in ` : ""}${book.seriesName}` : "Series status unknown", source: sourceFacts.seriesName },
+    { label: "Format", value: current.format ?? "Not confirmed yet", source: sourceFacts.format },
+    { label: "ISBN-10", value: current.isbn10 ?? "Not listed for this edition", source: sourceFacts.isbn10 },
+    { label: "ISBN-13", value: current.isbn13 ?? "Not listed for this edition", source: sourceFacts.isbn13 },
+    { label: "Page count", value: pageCountVaries && !current.pageCount ? "Page count varies by edition" : current.pageCount?.toString() ?? "Not confirmed yet", source: sourceFacts.pageCount },
+    { label: "Language", value: current.language ? languageLabel(current.language) : "Not confirmed yet", source: sourceFacts.language },
+    { label: "Publisher", value: current.publisher ?? "Not confirmed yet", source: sourceFacts.publisher },
+    { label: "Published date", value: current.publishedDate ?? current.publishedYear?.toString() ?? "Not confirmed yet", source: sourceFacts.publishedDate },
+    { label: "Series", value: book.seriesName ? `${book.seriesPosition ? `Book ${book.seriesPosition} in ` : ""}${book.seriesName}` : book.importedMetadata?.ai_series_status ? String(book.importedMetadata.ai_series_status) : "No confirmed series yet", source: sourceFacts.seriesName },
     { label: "Source", value: sourceLabel(current.source) },
   ];
   return (
@@ -40,7 +40,7 @@ export function EditionDetailsCard({ book, selectedEdition, editions = [], switc
               <span>{row.value}</span>
               {row.source && <SourceBadge fact={row.source} />}
             </div>
-            {row.value === "Unknown" && <div className="mt-2 text-xs font-bold text-mocha/60 dark:text-cream/55">Manual edit option</div>}
+            {needsManualEdit(row.value) && <div className="mt-2 text-xs font-bold text-mocha/60 dark:text-cream/55">Manual edit available</div>}
           </div>
         ))}
       </div>
@@ -82,7 +82,7 @@ function EditionRow({ edition, current = false, switching = false, onSwitch }: {
         <div className="min-w-0">
         <div className="font-bold">{current ? "Current edition" : edition.editionTitle}</div>
         <div className="mt-1 text-sm font-semibold text-mocha/70 dark:text-cream/65">
-          {[edition.format, edition.isbn13 ? `ISBN-13 ${edition.isbn13}` : edition.isbn10 ? `ISBN-10 ${edition.isbn10}` : undefined, edition.publisher, edition.publishedDate ?? edition.publishedYear, edition.pageCount ? `${edition.pageCount} pages` : undefined, edition.language].filter(Boolean).join(" · ") || "Edition details unavailable"}
+          {[edition.format, edition.isbn13 ? `ISBN-13 ${edition.isbn13}` : edition.isbn10 ? `ISBN-10 ${edition.isbn10}` : undefined, edition.publisher, edition.publishedDate ?? edition.publishedYear, edition.pageCount ? `${edition.pageCount} pages` : undefined, edition.language ? languageLabel(edition.language) : undefined].filter(Boolean).join(" · ") || "Edition details are still being checked"}
         </div>
         </div>
       </div>
@@ -114,4 +114,15 @@ function sourceLabel(source: string) {
   if (source === "google_books") return "Google Books";
   if (source === "open_library") return "Open Library";
   return source;
+}
+
+function languageLabel(value: string) {
+  const language = value.toLowerCase();
+  if (["eng", "en", "english"].includes(language)) return "English";
+  if (["spa", "es", "spanish"].includes(language)) return "Spanish";
+  return value;
+}
+
+function needsManualEdit(value: string | number) {
+  return typeof value === "string" && (value.startsWith("Not ") || value.startsWith("No confirmed"));
 }

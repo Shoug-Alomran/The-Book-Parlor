@@ -108,7 +108,7 @@ export const externalBookMetadataService = {
       googleBooksId: volume.id,
       title: info.title ?? "Untitled book",
       subtitle: info.subtitle,
-      authors: info.authors ?? ["Unknown author"],
+      authors: info.authors ?? ["Author not listed"],
       description: info.description ?? "No description is available yet.",
       coverUrl: normalizeCover(info.imageLinks?.thumbnail ?? info.imageLinks?.smallThumbnail),
       isbn10,
@@ -152,7 +152,7 @@ export const externalBookMetadataService = {
       openlibraryWorkKey: result.key,
       openlibraryEditionKey: result.edition_key?.[0],
       title: result.title ?? "Untitled book",
-      authors: result.author_name ?? ["Unknown author"],
+      authors: result.author_name ?? ["Author not listed"],
       description: result.first_sentence?.[0] ?? "No description is available yet.",
       coverUrl: result.cover_i ? `https://covers.openlibrary.org/b/id/${result.cover_i}-L.jpg` : undefined,
       isbn10: isbn?.length === 10 ? isbn : undefined,
@@ -190,7 +190,7 @@ export const externalBookMetadataService = {
       openlibraryWorkKey: workKey,
       openlibraryEditionKey: result.key,
       title: result.title ?? "Untitled book",
-      authors: ["Unknown author"],
+      authors: ["Author not listed"],
       description: result.description?.value ?? result.description ?? "No description is available yet.",
       coverUrl: result.covers?.[0] ? `https://covers.openlibrary.org/b/id/${result.covers[0]}-L.jpg` : undefined,
       isbn10,
@@ -233,7 +233,7 @@ export const externalBookMetadataService = {
         title: firstText(google?.title, openLibrary?.title, current.title) ?? current.title,
         subtitle: firstText(google?.subtitle, current.subtitle, openLibrary?.subtitle),
         authors: firstArray(google?.authors, current.authors, openLibrary?.authors),
-        description: firstUsefulDescription(google?.description, openLibrary?.description, current.description) ?? "No description is available yet.",
+        description: bestDescription(current, google, openLibrary) ?? "No description is available yet.",
         coverUrl: firstText(google?.coverUrl, openLibrary?.coverUrl, current.coverUrl),
         isbn10: firstText(google?.isbn10, openLibrary?.isbn10, current.isbn10),
         isbn13: firstText(google?.isbn13, openLibrary?.isbn13, current.isbn13),
@@ -319,7 +319,38 @@ function firstArray(...values: Array<string[] | undefined>) {
 }
 
 function firstUsefulDescription(...values: Array<string | undefined>) {
-  return values.find((value) => value && value.trim() && value !== "No description is available yet.");
+  return values.find((value) => isUsefulDescription(value));
+}
+
+function bestDescription(current: Book, google?: Book, openLibrary?: Book) {
+  const candidates = [google, openLibrary, current]
+    .map((book) => ({ description: book?.description, language: normalizeLanguage(book?.language), source: book?.source }))
+    .filter((item) => isUsefulDescription(item.description));
+  const preferredLanguage = normalizeLanguage(current.language);
+  if (preferredLanguage === "en") {
+    return candidates.find((item) => item.language === "en" && !looksSpanish(item.description))?.description
+      ?? candidates.find((item) => !looksSpanish(item.description))?.description;
+  }
+  return candidates.find((item) => !looksSpanish(item.description))?.description ?? candidates[0]?.description;
+}
+
+function isUsefulDescription(value?: string) {
+  return Boolean(value && value.trim() && value !== "No description is available yet.");
+}
+
+function normalizeLanguage(value?: string) {
+  const language = value?.toLowerCase();
+  if (!language) return undefined;
+  if (["en", "eng", "english"].includes(language)) return "en";
+  if (["es", "spa", "spanish", "castilian"].includes(language)) return "es";
+  return language;
+}
+
+function looksSpanish(value?: string) {
+  if (!value) return false;
+  const text = value.toLowerCase();
+  const markers = [" el ", " la ", " los ", " las ", " una ", " un ", " que ", " para ", " por ", " con ", " su ", " sus ", " novela ", " verano ", " libros", " comedia ", " romántica", " año"];
+  return markers.filter((marker) => text.includes(marker)).length >= 4 || /[áéíóúñ¿¡]/i.test(value);
 }
 
 function normalizeOpenLibraryEditionToEdition(entry: any): BookEdition {

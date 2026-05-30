@@ -35,6 +35,8 @@ export const bookEnrichmentService = {
       categories: mergeValues(resolvedBook.categories, ai.genres),
       tropes: mergeValues(resolvedBook.tropes, ai.tropes),
       moods: mergeValues(resolvedBook.moods, ai.moods),
+      contentWarnings: mergeValues(resolvedBook.contentWarnings ?? [], ai.content_warnings),
+      aiSummary: ai.book_parlor_summary?.confidence && ai.book_parlor_summary.confidence >= 0.5 ? ai.book_parlor_summary.value : resolvedBook.aiSummary,
       importedMetadata: {
         ...(resolvedBook.importedMetadata ?? {}),
         enrichment_audit: {

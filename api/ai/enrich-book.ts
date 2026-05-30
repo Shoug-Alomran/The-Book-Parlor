@@ -117,6 +117,8 @@ export default async function handler(request: Request): Promise<Response> {
     quality_rules: [
       "Return fewer tropes when uncertain.",
       "Only return a trope if directly supported by supplied context or high-confidence known-book knowledge.",
+      "For well-known books, use high-confidence known-book knowledge to avoid empty trope and mood results when the supplied API description is incomplete or wrong-language.",
+      "If the description is in a non-English language, still classify it and provide the short_summary in English.",
       "Every trope must include concrete evidence.",
       "Do not invent factual metadata.",
       "Content warnings are suggestions only.",

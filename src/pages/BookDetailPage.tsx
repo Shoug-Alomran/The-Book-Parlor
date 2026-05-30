@@ -164,6 +164,9 @@ export function BookDetailPage() {
   };
 
   if (!book) return <PageHeader title="Book not found" description="Try searching for it, then add it to your parlor." />;
+  const displayDescription = descriptionForDisplay(book, userBook?.selectedEdition);
+  const tropeItems = book.tropes.length ? book.tropes : suggestionValues(aiSuggestions, "tropes", 0.5);
+  const moodItems = book.moods.length ? book.moods : suggestionValues(aiSuggestions, "moods", 0.5);
 
   return (
     <div>
@@ -208,14 +211,14 @@ export function BookDetailPage() {
             <div className="mb-4 grid gap-3 sm:grid-cols-3">
               <span className="chip"><Star size={14} />{ratingSummaryLabel(ratingBreakdown)}</span>
               <span className="chip"><MessageCircle size={14} />{reviews.length + comments.length} discussions</span>
-              <span className="chip">{book.pageCount ?? "Unknown"} pages</span>
+              <span className="chip">{book.pageCount ? `${book.pageCount} pages` : "Page count still being checked"}</span>
             </div>
-            {hasUsefulDescription(book.description) ? (
-              <p className="leading-8 text-espresso/75 dark:text-cream/75">{book.description}</p>
+            {displayDescription ? (
+              <p className="leading-8 text-espresso/75 dark:text-cream/75">{displayDescription}</p>
             ) : (
               <div className="rounded-2xl bg-gold/15 p-4">
                 <h3 className="font-serif text-2xl font-bold">Description missing</h3>
-                <p className="mt-2 text-espresso/70 dark:text-cream/70">{enriching ? "Fetching a description from Google Books and Open Library..." : "No factual description was found yet."}</p>
+                <p className="mt-2 text-espresso/70 dark:text-cream/70">{enriching ? "Fetching a description from Google Books and Open Library..." : "No factual English description was found yet. AI can still suggest vibes from title, author, and metadata."}</p>
                 {enrichmentFailed && <button type="button" onClick={() => runAutomaticEnrichment()} disabled={enriching} className="btn-primary mt-4">Retry metadata fetch</button>}
               </div>
             )}
@@ -226,11 +229,11 @@ export function BookDetailPage() {
               </div>
             )}
             <div className="mt-5 grid gap-4">
-              <SeriesInfo book={book} />
-              <div><h3 className="mb-2 font-bold">Genres</h3><TropeChips items={book.categories} /></div>
-              <div><h3 className="mb-2 font-bold">Tropes {aiSuggestions.some((item) => item.fieldName === "tropes") && <span className="chip ml-2 bg-gold/20">AI inferred</span>}</h3><TropeChips items={book.tropes.length ? book.tropes : suggestionValues(aiSuggestions, "tropes", 0.75)} />{possibleSuggestionValues(aiSuggestions, "tropes").length > 0 && <div className="mt-2"><span className="mr-2 text-xs font-bold uppercase tracking-[0.14em] text-mocha/60">Possible</span><TropeChips items={possibleSuggestionValues(aiSuggestions, "tropes")} /></div>}</div>
-              <div><h3 className="mb-2 font-bold">Moods {aiSuggestions.some((item) => item.fieldName === "moods") && <span className="chip ml-2 bg-gold/20">AI inferred</span>}</h3><TropeChips items={book.moods.length ? book.moods : suggestionValues(aiSuggestions, "moods", 0.75)} tone="mood" />{possibleSuggestionValues(aiSuggestions, "moods").length > 0 && <div className="mt-2"><span className="mr-2 text-xs font-bold uppercase tracking-[0.14em] text-mocha/60">Possible</span><TropeChips items={possibleSuggestionValues(aiSuggestions, "moods")} tone="mood" /></div>}</div>
-              <div><h3 className="mb-2 font-bold">Content warnings</h3><TropeChips items={book.contentWarnings ?? []} tone="warning" /></div>
+              <SeriesInfo book={book} aiSuggestions={aiSuggestions} />
+              <ChipSection title="Genres" items={book.categories} emptyText={enriching ? "Checking genres..." : "No genre tags saved yet."} />
+              <ChipSection title="Tropes" items={tropeItems} tone="trope" badge={aiSuggestions.some((item) => item.fieldName === "tropes") ? "AI inferred" : undefined} emptyText={enriching ? "AI is checking tropes..." : "No trope suggestions saved yet. Rerun AI detection to classify this book."} />
+              <ChipSection title="Moods" items={moodItems} tone="mood" badge={aiSuggestions.some((item) => item.fieldName === "moods") ? "AI inferred" : undefined} emptyText={enriching ? "AI is checking moods..." : "No mood suggestions saved yet. Rerun AI detection to classify this book."} />
+              <ChipSection title="Content warnings" items={book.contentWarnings?.length ? book.contentWarnings : suggestionValues(aiSuggestions, "content_warnings", 0.5)} tone="warning" emptyText="No suggested content warnings saved yet." />
             </div>
           </section>
           <AIDebugPanel debug={aiDebug} suggestions={aiSuggestions} onRerun={rerunAIDetection} loading={enriching} />
@@ -245,15 +248,28 @@ export function BookDetailPage() {
   );
 }
 
-function SeriesInfo({ book }: { book: Book }) {
+function SeriesInfo({ book, aiSuggestions }: { book: Book; aiSuggestions: BookAISuggestion[] }) {
+  const aiSeries = suggestionValues(aiSuggestions, "standalone_or_series", 0.5)[0];
   return (
     <div>
       <h3 className="mb-2 font-bold">Series information</h3>
       {book.seriesName ? (
         <span className="chip">Book {book.seriesPosition ?? "?"} in the {book.seriesName} series</span>
+      ) : aiSeries ? (
+        <span className="chip">AI inferred: {aiSeries}</span>
       ) : (
-        <span className="chip">Series status unknown</span>
+        <span className="chip">No confirmed series data yet</span>
       )}
+    </div>
+  );
+}
+
+function ChipSection({ title, items, tone = "trope", badge, emptyText }: { title: string; items: string[]; tone?: "trope" | "mood" | "warning"; badge?: string; emptyText: string }) {
+  return (
+    <div>
+      <h3 className="mb-2 font-bold">{title} {badge && <span className="chip ml-2 bg-gold/20">{badge}</span>}</h3>
+      <TropeChips items={items} tone={tone} />
+      {!items.length && <p className="text-sm font-semibold text-mocha/65 dark:text-cream/60">{emptyText}</p>}
     </div>
   );
 }
@@ -295,7 +311,7 @@ function AIDebugPanel({ debug, suggestions, onRerun, loading }: { debug?: BookAI
       <div className="grid gap-2 text-sm font-semibold md:grid-cols-2">
         <div className="rounded-2xl bg-white/55 p-3 dark:bg-white/10">OpenAI called: {debug?.openaiCalled ? "yes" : "no"}</div>
         <div className="rounded-2xl bg-white/55 p-3 dark:bg-white/10">Description length: {debug?.descriptionLength ?? 0}</div>
-        <div className="rounded-2xl bg-white/55 p-3 dark:bg-white/10">Model: {debug?.model ?? "unknown"}</div>
+        <div className="rounded-2xl bg-white/55 p-3 dark:bg-white/10">Model: {debug?.model ?? "not reported"}</div>
         <div className="rounded-2xl bg-white/55 p-3 dark:bg-white/10">Fallback used: {debug?.fallbackUsed ? "yes" : "no"}</div>
         <div className="rounded-2xl bg-white/55 p-3 dark:bg-white/10">Saved trope count: {debug?.savedTropeCount ?? suggestions.filter((item) => item.fieldName === "tropes").length}</div>
         <div className="rounded-2xl bg-white/55 p-3 dark:bg-white/10">Error: {debug?.error ?? "none"}</div>
@@ -307,6 +323,23 @@ function AIDebugPanel({ debug, suggestions, onRerun, loading }: { debug?: BookAI
 
 function hasUsefulDescription(description?: string) {
   return Boolean(description && description.trim() && description !== "No description is available yet.");
+}
+
+function descriptionForDisplay(book: Book, selectedEdition?: BookEdition) {
+  if (!hasUsefulDescription(book.description)) return book.aiSummary;
+  if (isEnglishLanguage(selectedEdition?.language ?? book.language) && looksSpanish(book.description)) return book.aiSummary;
+  return book.description;
+}
+
+function isEnglishLanguage(language?: string) {
+  return ["eng", "en", "english"].includes(language?.toLowerCase() ?? "");
+}
+
+function looksSpanish(value?: string) {
+  if (!value) return false;
+  const text = value.toLowerCase();
+  const markers = [" el ", " la ", " los ", " las ", " una ", " un ", " que ", " para ", " por ", " con ", " novela ", " verano ", " libros", " comedia ", " romántica"];
+  return markers.filter((marker) => text.includes(marker)).length >= 4 || /[áéíóúñ¿¡]/i.test(value);
 }
 
 function RatingBreakdownCard({ breakdown, bookId }: { breakdown: CommunityRatingBreakdown; bookId: string }) {
