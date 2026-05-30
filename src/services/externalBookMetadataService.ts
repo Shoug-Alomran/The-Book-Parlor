@@ -14,10 +14,10 @@ type GoogleVolume = {
 };
 
 export const externalBookMetadataService = {
-  async searchGoogleBooks(query: string): Promise<Book[]> {
+  async searchGoogleBooks(query: string, options?: { langRestrict?: string }): Promise<Book[]> {
     if (!query.trim()) return [];
     const key = import.meta.env.VITE_GOOGLE_BOOKS_API_KEY;
-    const url = `${GOOGLE_BOOKS_URL}?q=${encodeURIComponent(query)}&maxResults=12${key ? `&key=${key}` : ""}`;
+    const url = `${GOOGLE_BOOKS_URL}?q=${encodeURIComponent(query)}&maxResults=20${options?.langRestrict ? `&langRestrict=${encodeURIComponent(options.langRestrict)}` : ""}${key ? `&key=${key}` : ""}`;
     const response = await fetch(url);
     if (!response.ok) throw new Error("Google Books search is unavailable right now.");
     const data = await response.json();
@@ -36,10 +36,20 @@ export const externalBookMetadataService = {
   },
 
   async findBestGoogleBook(book: Book): Promise<Book | undefined> {
-    if (book.googleBooksId) return this.fetchGoogleBookById(book.googleBooksId);
     const isbn = book.isbn13 ?? book.isbn10;
-    const query = isbn ? `isbn:${isbn}` : `${book.title} ${book.authors[0] ?? ""}`;
-    return (await this.searchGoogleBooks(query))[0];
+    const titleAuthor = `${book.title} ${book.authors[0] ?? ""}`.trim();
+    const candidates = await Promise.allSettled([
+      book.googleBooksId ? this.fetchGoogleBookById(book.googleBooksId) : Promise.resolve(undefined),
+      isbn ? this.searchGoogleBooks(`isbn:${isbn}`, { langRestrict: "en" }) : Promise.resolve([]),
+      isbn ? this.searchGoogleBooks(`isbn:${isbn}`) : Promise.resolve([]),
+      titleAuthor ? this.searchGoogleBooks(titleAuthor, { langRestrict: "en" }) : Promise.resolve([]),
+      titleAuthor ? this.searchGoogleBooks(`intitle:${book.title} inauthor:${book.authors[0] ?? ""}`, { langRestrict: "en" }) : Promise.resolve([]),
+    ]);
+    const books = candidates.flatMap((result) => {
+      if (result.status !== "fulfilled") return [];
+      return Array.isArray(result.value) ? result.value : result.value ? [result.value] : [];
+    });
+    return bestCandidate(book, dedupeBookCandidates(books));
   },
 
   async searchOpenLibrary(query: string): Promise<Book[]> {
@@ -61,11 +71,14 @@ export const externalBookMetadataService = {
 
   async findBestOpenLibraryBook(book: Book): Promise<Book | undefined> {
     const isbn = book.isbn13 ?? book.isbn10;
+    const candidates: Book[] = [];
     if (isbn) {
       const edition = await this.fetchOpenLibraryByIsbn(isbn);
-      if (edition) return edition;
+      if (edition) candidates.push(edition);
     }
-    return (await this.searchOpenLibrary(`${book.title} ${book.authors[0] ?? ""}`))[0];
+    candidates.push(...await this.searchOpenLibrary(`${book.title} ${book.authors[0] ?? ""} language:eng`).catch(() => []));
+    candidates.push(...await this.searchOpenLibrary(`${book.title} ${book.authors[0] ?? ""}`).catch(() => []));
+    return bestCandidate(book, dedupeBookCandidates(candidates));
   },
 
   async fetchOpenLibraryEditions(book: Book): Promise<BookEdition[]> {
@@ -94,6 +107,10 @@ export const externalBookMetadataService = {
         },
       },
     };
+  },
+
+  chooseBestDescription(current: Book, ...candidates: Array<Partial<Book> | undefined>) {
+    return bestDescription(current, ...candidates);
   },
 
   normalizeGoogleBook(volume: GoogleVolume): Book {
@@ -322,8 +339,8 @@ function firstUsefulDescription(...values: Array<string | undefined>) {
   return values.find((value) => isUsefulDescription(value));
 }
 
-function bestDescription(current: Book, google?: Book, openLibrary?: Book) {
-  const candidates = [google, openLibrary, current]
+function bestDescription(current: Book, ...books: Array<Partial<Book> | undefined>) {
+  const candidates = [...books, current]
     .map((book) => ({ description: book?.description, language: normalizeLanguage(book?.language), source: book?.source }))
     .filter((item) => isUsefulDescription(item.description));
   const preferredLanguage = normalizeLanguage(current.language);
@@ -332,6 +349,47 @@ function bestDescription(current: Book, google?: Book, openLibrary?: Book) {
       ?? candidates.find((item) => !looksSpanish(item.description))?.description;
   }
   return candidates.find((item) => !looksSpanish(item.description))?.description ?? candidates[0]?.description;
+}
+
+function bestCandidate(reference: Book, candidates: Book[]) {
+  return candidates
+    .map((book) => ({ book, score: candidateScore(reference, book) }))
+    .sort((a, b) => b.score - a.score)[0]?.book;
+}
+
+function candidateScore(reference: Book, candidate: Book) {
+  let score = 0;
+  const referenceTitle = normalizeText(reference.title);
+  const candidateTitle = normalizeText(candidate.title);
+  const referenceAuthor = normalizeText(reference.authors[0] ?? "");
+  const candidateAuthors = normalizeText(candidate.authors.join(" "));
+  if (candidateTitle === referenceTitle) score += 35;
+  else if (candidateTitle.includes(referenceTitle) || referenceTitle.includes(candidateTitle)) score += 20;
+  if (referenceAuthor && candidateAuthors.includes(referenceAuthor)) score += 20;
+  if (reference.isbn13 && candidate.isbn13 === reference.isbn13) score += 45;
+  if (reference.isbn10 && candidate.isbn10 === reference.isbn10) score += 35;
+  if (normalizeLanguage(candidate.language) === "en") score += 22;
+  if (isUsefulDescription(candidate.description) && !looksSpanish(candidate.description)) score += 22;
+  if (candidate.pageCount) score += 8;
+  if (candidate.publisher) score += 8;
+  if (candidate.categories.length) score += 8;
+  if (candidate.coverUrl) score += 4;
+  if (looksSpanish(candidate.description)) score -= 35;
+  return score;
+}
+
+function dedupeBookCandidates(books: Book[]) {
+  const seen = new Set<string>();
+  return books.filter((book) => {
+    const key = book.googleBooksId ?? book.openlibraryEditionKey ?? book.openlibraryWorkKey ?? book.isbn13 ?? book.isbn10 ?? `${book.title}-${book.authors.join(",")}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function normalizeText(value: string) {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
 }
 
 function isUsefulDescription(value?: string) {

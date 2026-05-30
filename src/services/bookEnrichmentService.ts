@@ -16,7 +16,7 @@ export const bookEnrichmentService = {
     const work = await externalBookMetadataService.fetchOpenLibraryWork(merged.book).catch(() => undefined);
     const withWork = work ? {
       ...merged.book,
-      description: firstUsefulDescription(merged.book.description, work.description) ?? merged.book.description,
+      description: externalBookMetadataService.chooseBestDescription(merged.book, work, merged.book) ?? merged.book.description,
       externalSubjects: Array.from(new Set([...(merged.book.externalSubjects ?? []), ...(work.externalSubjects ?? [])])),
       importedMetadata: { ...(merged.book.importedMetadata ?? {}), ...(work.importedMetadata ?? {}) },
     } : merged.book;
