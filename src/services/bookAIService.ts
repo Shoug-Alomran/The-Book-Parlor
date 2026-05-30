@@ -1,5 +1,6 @@
 import type { Book, BookAIEnrichment, BookAIDebugInfo, InferredMetadataValue } from "../types";
 import { normalizeTropeName } from "../data/tropeVocabulary";
+import { supabase } from "../lib/supabase";
 
 const empty: BookAIEnrichment = {
   genres: [],
@@ -12,30 +13,55 @@ const empty: BookAIEnrichment = {
 
 export const bookAIService = {
   async inferMetadata(book: Book): Promise<BookAIEnrichment> {
+    const payload = aiPayload(book);
     try {
       const response = await fetch("/api/ai/enrich-book", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          book_id: book.id,
-          title: book.title,
-          subtitle: book.subtitle,
-          author: book.authors.join(", "),
-          authors: book.authors,
-          description: hasUsefulDescription(book.description) ? book.description : "",
-          categories: book.categories,
-          subjects: book.externalSubjects ?? [],
-          series_name: book.seriesName,
-          community_tropes: book.tropes ?? [],
-        }),
+        body: JSON.stringify(payload),
       });
-      if (!response.ok) return unavailable(book, `AI endpoint returned ${response.status}.`);
+      if (!response.ok) throw new Error(`Vercel AI endpoint returned ${response.status}.`);
       return normalizeAIResponse(await response.json(), book);
     } catch (error) {
-      return unavailable(book, error instanceof Error ? error.message : "AI detection unavailable.");
+      const vercelError = error instanceof Error ? error.message : "Vercel AI endpoint unavailable.";
+      const edge = await callSupabaseEdgeFunction(book, payload, vercelError);
+      if (edge) return edge;
+      return unavailable(book, vercelError);
     }
   },
 };
+
+function aiPayload(book: Book) {
+  return {
+    book_id: book.id,
+    title: book.title,
+    subtitle: book.subtitle,
+    author: book.authors.join(", "),
+    authors: book.authors,
+    description: hasUsefulDescription(book.description) ? book.description : "",
+    categories: book.categories,
+    subjects: book.externalSubjects ?? [],
+    series_name: book.seriesName,
+    community_tropes: book.tropes ?? [],
+  };
+}
+
+async function callSupabaseEdgeFunction(book: Book, payload: ReturnType<typeof aiPayload>, vercelError: string) {
+  if (!supabase) return undefined;
+  try {
+    const { data, error } = await supabase.functions.invoke("enrich-book-ai", { body: payload });
+    if (error) throw error;
+    const normalized = normalizeAIResponse(data, book);
+    if (normalized.debug) {
+      normalized.debug.error = normalized.debug.error ? `${normalized.debug.error}; Vercel fallback reason: ${vercelError}` : undefined;
+      normalized.debug.fallbackUsed = true;
+    }
+    return normalized;
+  } catch (error) {
+    console.error("Book Parlor Supabase Edge AI fallback failed", error);
+    return undefined;
+  }
+}
 
 function normalizeAIResponse(payload: unknown, book: Book): BookAIEnrichment {
   const source = typeof payload === "object" && payload ? payload as Record<string, any> : {};
