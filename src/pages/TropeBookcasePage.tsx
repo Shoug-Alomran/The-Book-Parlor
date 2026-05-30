@@ -29,7 +29,7 @@ export function TropeBookcasePage() {
       <PageHeader
         eyebrow="Trope bookcase"
         title="All your added books, sorted by trope."
-        description="Every book you save lands here automatically, grouped into digital bookcases by accepted trope suggestions."
+        description="Every book you save lands here automatically, grouped into digital bookcases by its populated trope profile."
         action={<span className="btn-soft"><Tags size={18} />{books.length} saved books</span>}
       />
       <div className="cozy-card mb-5">
@@ -55,7 +55,7 @@ export function TropeBookcasePage() {
         }) : (
           <section className="cozy-card text-center">
             <h2 className="font-serif text-3xl font-bold">No trope shelves yet.</h2>
-            <p className="mt-3 text-espresso/70 dark:text-cream/70">Add a book from Search and accept its suggested tags. It will appear here automatically.</p>
+            <p className="mt-3 text-espresso/70 dark:text-cream/70">Add a book from Search and its book profile will populate here automatically.</p>
           </section>
         )}
       </div>

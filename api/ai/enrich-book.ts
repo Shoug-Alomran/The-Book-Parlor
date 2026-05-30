@@ -7,7 +7,7 @@ type ClassifiedItem = {
   evidence: string;
   source_basis: Basis;
   custom?: boolean;
-  status?: "suggested";
+  status?: "ai_populated";
 };
 
 type EnrichBookRequest = {
@@ -29,7 +29,7 @@ type EnrichBookResponse = {
   tropes: ClassifiedItem[];
   moods: ClassifiedItem[];
   season_vibes: ClassifiedItem[];
-  content_warnings: Array<ClassifiedItem & { status: "suggested" }>;
+  content_warnings: Array<ClassifiedItem & { status: "ai_populated" }>;
   possible_series_status: ClassifiedItem | null;
   hype_rating_suggestion: ClassifiedItem | null;
   pov_type: ClassifiedItem | null;
@@ -98,7 +98,7 @@ export default async function handler(request: Request): Promise<Response> {
       tropes: [{ name: "string", normalized_slug: "string", confidence: "0-1", evidence: "string", source_basis: "description|metadata|known_book_knowledge|community_signal", custom: "boolean" }],
       moods: [{ name: "string", confidence: "0-1", evidence: "string", source_basis: "description|metadata|known_book_knowledge|community_signal" }],
       season_vibes: [{ name: "string", confidence: "0-1", evidence: "string", source_basis: "description|metadata|known_book_knowledge|community_signal" }],
-      content_warnings: [{ name: "string", confidence: "0-1", evidence: "string", source_basis: "description|metadata|known_book_knowledge|community_signal", status: "suggested" }],
+      content_warnings: [{ name: "string", confidence: "0-1", evidence: "string", source_basis: "description|metadata|known_book_knowledge|community_signal", status: "ai_populated" }],
       possible_series_status: { name: "string", confidence: "0-1", evidence: "string", source_basis: "description|metadata|known_book_knowledge|community_signal" },
       hype_rating_suggestion: { name: "string", confidence: "0-1", evidence: "string", source_basis: "description|metadata|known_book_knowledge|community_signal" },
       pov_type: { name: "string", confidence: "0-1", evidence: "string", source_basis: "description|metadata|known_book_knowledge|community_signal" },
@@ -121,7 +121,7 @@ export default async function handler(request: Request): Promise<Response> {
       "If the description is in a non-English language, still classify it and provide the short_summary in English.",
       "Every trope must include concrete evidence.",
       "Do not invent factual metadata.",
-      "Content warnings are suggestions only.",
+      "Content warnings are AI-populated reading-profile fields; do not include them unless supported by supplied context or high-confidence known-book knowledge.",
     ],
     book: {
       book_id: body.book_id,
@@ -150,7 +150,7 @@ export default async function handler(request: Request): Promise<Response> {
       input: [
         {
           role: "system",
-          content: "You are a precise book classification engine. Return strict JSON only. Classify in layers: genres, tropes, moods/vibes, rating template, content warning suggestions. Quality over quantity.",
+          content: "You are a precise book classification engine. Return strict JSON only. Populate a reader-facing book profile in layers: genres, tropes, moods/vibes, rating template, and content warnings. Quality over quantity.",
         },
         { role: "user", content: JSON.stringify(prompt) },
       ],
@@ -190,7 +190,7 @@ function normalizePayload(payload: any): Omit<EnrichBookResponse, "debug"> {
     tropes: list(payload?.tropes).map(normalizeItem).filter((item) => !isGenreAsTrope(item.name)),
     moods: list(payload?.moods).map(normalizeItem),
     season_vibes: list(payload?.season_vibes).map(normalizeItem),
-    content_warnings: list(payload?.content_warnings).map((item) => ({ ...normalizeItem(item), status: "suggested" as const })),
+    content_warnings: list(payload?.content_warnings).map((item) => ({ ...normalizeItem(item), status: "ai_populated" as const })),
     possible_series_status: one(payload?.possible_series_status),
     hype_rating_suggestion: one(payload?.hype_rating_suggestion),
     pov_type: one(payload?.pov_type),
@@ -233,7 +233,7 @@ function normalizeItem(item: any): ClassifiedItem {
     evidence: String(item?.evidence ?? "").trim(),
     source_basis: (["description", "metadata", "known_book_knowledge", "community_signal"].includes(item?.source_basis) ? item.source_basis : "metadata") as Basis,
     custom: Boolean(item?.custom),
-    status: item?.status === "suggested" ? "suggested" : undefined,
+    status: item?.status === "ai_populated" ? "ai_populated" : undefined,
   };
 }
 

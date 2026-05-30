@@ -22,8 +22,8 @@ export function MetadataStatusCard({ book, loading = false, failed = false, hasA
           <h2 className="mt-2 font-serif text-3xl font-bold">{status}</h2>
           <p className="mt-2 max-w-2xl leading-6 text-espresso/70 dark:text-cream/70">
             {status.includes("Missing") || status === "Needs enrichment"
-              ? "Some factual details are missing. Enrichment checks Google Books and Open Library first, then uses cautious AI suggestions for subjective fields only."
-              : "This book has enough factual metadata to feel at home in your parlor."}
+              ? "Some factual edition details are still being checked. The AI book profile fills subjective reading details like tropes, moods, vibe, and summary."
+              : "This book has enough metadata and reading-profile detail to feel at home in your parlor."}
           </p>
         </div>
         {(loading || failed) && (
@@ -36,7 +36,7 @@ export function MetadataStatusCard({ book, loading = false, failed = false, hasA
       <div className="mt-4 flex flex-wrap gap-2">
         {sources?.includes("google_books") && <span className="chip">Imported from Google Books</span>}
         {sources?.includes("open_library") && <span className="chip">Imported from Open Library</span>}
-        {hasAISuggestions && <span className="chip bg-gold/20"><Sparkles size={14} />AI inferred</span>}
+        {hasAISuggestions && <span className="chip bg-gold/20"><Sparkles size={14} />AI populated</span>}
         {Boolean(metadata.manual_edits) && <span className="chip">Manually edited</span>}
       </div>
     </section>

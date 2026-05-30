@@ -69,15 +69,15 @@ export function SearchPage() {
       <div className="mt-6 grid gap-4 xl:grid-cols-2">
         {loading && Array.from({ length: 4 }).map((_, index) => <SkeletonCard key={index} />)}
         {!loading && results.map((book) => {
-          const suggestions = tropeDetectionService.infer(book.description, book.categories);
+          const quickTags = tropeDetectionService.infer(book.description, book.categories);
           return (
             <div key={book.id} className="relative">
               <BookCard item={book} />
               <div className="cozy-card mt-2">
-                <p className="mb-2 text-xs font-black uppercase tracking-[0.2em] text-mocha/70 dark:text-gold">Suggested tags</p>
-                <TropeChips items={[...suggestions.tropes, ...suggestions.moods].slice(0, 6)} />
+                <p className="mb-2 text-xs font-black uppercase tracking-[0.2em] text-mocha/70 dark:text-gold">Quick metadata tags</p>
+                <TropeChips items={[...quickTags.tropes, ...quickTags.moods].slice(0, 6)} />
                 <div className="mt-4 grid gap-2 sm:grid-cols-2">
-                  <button type="button" onClick={() => save(book)} className="btn-primary w-full">Accept tags and save</button>
+                  <button type="button" onClick={() => save(book)} className="btn-primary w-full">Save and populate profile</button>
                   <Link to={`/books/${book.id}`} className="btn-soft w-full">Preview detail</Link>
                 </div>
               </div>

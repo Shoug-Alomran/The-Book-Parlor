@@ -39,11 +39,12 @@ export const bookEnrichmentService = {
       aiSummary: ai.book_parlor_summary?.confidence && ai.book_parlor_summary.confidence >= 0.5 ? ai.book_parlor_summary.value : resolvedBook.aiSummary,
       importedMetadata: {
         ...(resolvedBook.importedMetadata ?? {}),
+        ai_profile: aiProfile(ai),
         enrichment_audit: {
           last_run_at: new Date().toISOString(),
           factual_sources: merged.sources,
           metadata_resolver: resolver?.debug,
-          ai_suggestions_table: "book_ai_suggestions",
+          ai_profile_table: "book_ai_suggestions",
         },
         metadata_status: metadataStatus(merged.book, ai),
       },
@@ -100,7 +101,7 @@ export const bookEnrichmentService = {
     return mapEditionRow(data);
   },
 
-  async listAISuggestions(bookId: string, status: "pending" | "accepted" | "rejected" = "pending"): Promise<BookAISuggestion[]> {
+  async listAISuggestions(bookId: string, status: "pending" | "accepted" | "rejected" = "accepted"): Promise<BookAISuggestion[]> {
     if (!supabase) return [];
     const { data, error } = await supabase
       .from("book_ai_suggestions")
@@ -144,7 +145,7 @@ async function saveAISuggestions(bookId: string, ai: BookAIEnrichment): Promise<
   if (!rows.length) return [];
   const { data, error } = await supabase.from("book_ai_suggestions").insert(rows).select("*");
   if (error) {
-    console.error("Book Parlor AI suggestion save failed", error);
+    console.error("Book Parlor AI profile save failed", error);
     return [];
   }
   return (data ?? []).map(mapSuggestionRow);
@@ -166,6 +167,10 @@ async function saveEnrichment(book: Book) {
       page_count: book.pageCount,
       publisher: book.publisher,
       published_year: book.publishedYear,
+      tropes: book.tropes,
+      moods: book.moods,
+      content_warnings: book.contentWarnings,
+      ai_summary: book.aiSummary,
       language: book.language,
       source: book.source,
     });
@@ -208,7 +213,7 @@ async function trySaveRelationalSuggestions(book: Book, ai: BookAIEnrichment, so
     ]);
     return tropesToSave.length;
   } catch (error) {
-    console.error("Book Parlor AI relational suggestion save failed", error);
+    console.error("Book Parlor AI profile relational save failed", error);
     return 0;
   }
 }
@@ -260,7 +265,26 @@ async function clearPreviousAISuggestions(bookId: string) {
 }
 
 function mergeValues(current: string[], suggestions: InferredMetadataValue[]) {
-  return Array.from(new Set([...current, ...suggestions.filter((item) => item.confidence >= 0.75).map((item) => item.value)]));
+  return Array.from(new Set([...current, ...suggestions.filter((item) => item.confidence >= 0.5).map((item) => item.value)]));
+}
+
+function aiProfile(ai: BookAIEnrichment) {
+  if (ai.detectionUnavailable) return undefined;
+  return {
+    genres: ai.genres,
+    tropes: ai.tropes,
+    moods: ai.moods,
+    content_warnings: ai.content_warnings,
+    season_vibes: ai.season_vibes,
+    series_status: ai.standalone_or_series,
+    pov_type: ai.likely_pov_type,
+    pov_count: ai.likely_pov_count,
+    hype_rating: ai.hype_rating_suggestion,
+    rating_genre: ai.rating_genre_suggestion,
+    summary: ai.book_parlor_summary,
+    similar_books: ai.similar_books,
+    populated_at: new Date().toISOString(),
+  };
 }
 
 function needsFactualResolver(book: Book) {
@@ -367,7 +391,7 @@ function metadataStatus(book: Book, ai?: BookAIEnrichment) {
   if (!book.description || book.description === "No description is available yet.") missing.push("Missing description");
   if (!book.pageCount) missing.push("Missing page count");
   if (!book.categories.length) missing.push("Missing genres");
-  if (ai && Object.values(ai).some((value) => Array.isArray(value) ? value.length : Boolean(value))) missing.push("AI inferred");
+  if (ai && Object.values(ai).some((value) => Array.isArray(value) ? value.length : Boolean(value))) missing.push("AI populated");
   if (!missing.length) return "Complete";
   if (missing.length > 2) return "Needs enrichment";
   return missing.join(" · ");
@@ -405,7 +429,7 @@ function suggestionRow(bookId: string, userId: string | null, fieldName: string,
     suggested_value: value,
     confidence: value.confidence,
     source: "ai_inferred",
-    status: "pending",
+    status: "accepted",
   };
 }
 

@@ -65,7 +65,7 @@ export function RatingPage() {
   }, [bookId]);
 
   const canRate = userBook?.readingStatus === "Read" || userBook?.readingStatus === "DNF";
-  const suggestedTropes = useMemo(() => {
+  const tropeMatches = useMemo(() => {
     const all = Array.from(new Set([...knownTropes, ...(userBook?.book.tropes ?? []), "Academic Rivals", "Who Did This to You", "Morally Grey", "Chosen One", "Touch Her and Die"]));
     return all.filter((trope) => trope.toLowerCase().includes(tropeSearch.toLowerCase()) && !journal.tropeTags.includes(trope)).slice(0, 8);
   }, [journal.tropeTags, tropeSearch, userBook?.book.tropes]);
@@ -238,13 +238,13 @@ export function RatingPage() {
           </div>
         </JournalSection>
 
-        <JournalSection title="Trope tracker" note="Search suggestions, remove chips, or add your own oddly specific trope.">
+        <JournalSection title="Trope tracker" note="Search trope tags, remove chips, or add your own oddly specific trope.">
           <div className="relative">
             <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-mocha/60" size={18} />
-            <input value={tropeSearch} onChange={(event) => setTropeSearch(event.target.value)} placeholder="Search trope suggestions" className="w-full rounded-2xl border-0 bg-white/70 py-3 pl-11 pr-4 font-semibold outline-none dark:bg-white/10" />
+            <input value={tropeSearch} onChange={(event) => setTropeSearch(event.target.value)} placeholder="Search trope tags" className="w-full rounded-2xl border-0 bg-white/70 py-3 pl-11 pr-4 font-semibold outline-none dark:bg-white/10" />
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
-            {suggestedTropes.map((trope) => <button key={trope} type="button" onClick={() => addTrope(trope)} className="chip hover:bg-gold/30">{trope}</button>)}
+            {tropeMatches.map((trope) => <button key={trope} type="button" onClick={() => addTrope(trope)} className="chip hover:bg-gold/30">{trope}</button>)}
           </div>
           <div className="mt-4 flex flex-wrap gap-2">
             {journal.tropeTags.map((trope) => <button key={trope} type="button" onClick={() => setJournal((current) => ({ ...current, tropeTags: current.tropeTags.filter((item) => item !== trope) }))} className="chip bg-sage/20">{trope} ×</button>)}

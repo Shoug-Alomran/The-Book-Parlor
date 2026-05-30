@@ -218,22 +218,22 @@ export function BookDetailPage() {
             ) : (
               <div className="rounded-2xl bg-gold/15 p-4">
                 <h3 className="font-serif text-2xl font-bold">Description missing</h3>
-                <p className="mt-2 text-espresso/70 dark:text-cream/70">{enriching ? "Fetching a description from Google Books and Open Library..." : "No factual English description was found yet. AI can still suggest vibes from title, author, and metadata."}</p>
+                <p className="mt-2 text-espresso/70 dark:text-cream/70">{enriching ? "Fetching a description from Google Books and Open Library..." : "No factual English description was found yet. The AI book profile will still fill in the reading vibe from title, author, and metadata."}</p>
                 {enrichmentFailed && <button type="button" onClick={() => runAutomaticEnrichment()} disabled={enriching} className="btn-primary mt-4">Retry metadata fetch</button>}
               </div>
             )}
             {book.aiSummary && (
               <div className="mt-4 rounded-2xl bg-white/55 p-4 dark:bg-white/10">
-                <div className="mb-1 text-xs font-black uppercase tracking-[0.18em] text-mocha/70 dark:text-gold">AI-suggested summary</div>
+                <div className="mb-1 text-xs font-black uppercase tracking-[0.18em] text-mocha/70 dark:text-gold">AI book profile</div>
                 <p className="leading-7 text-espresso/75 dark:text-cream/75">{book.aiSummary}</p>
               </div>
             )}
             <div className="mt-5 grid gap-4">
               <SeriesInfo book={book} aiSuggestions={aiSuggestions} />
               <ChipSection title="Genres" items={book.categories} emptyText={enriching ? "Checking genres..." : "No genre tags saved yet."} />
-              <ChipSection title="Tropes" items={tropeItems} tone="trope" badge={aiSuggestions.some((item) => item.fieldName === "tropes") ? "AI inferred" : undefined} emptyText={enriching ? "AI is checking tropes..." : "No trope suggestions saved yet. Rerun AI detection to classify this book."} />
-              <ChipSection title="Moods" items={moodItems} tone="mood" badge={aiSuggestions.some((item) => item.fieldName === "moods") ? "AI inferred" : undefined} emptyText={enriching ? "AI is checking moods..." : "No mood suggestions saved yet. Rerun AI detection to classify this book."} />
-              <ChipSection title="Content warnings" items={book.contentWarnings?.length ? book.contentWarnings : suggestionValues(aiSuggestions, "content_warnings", 0.5)} tone="warning" emptyText="No suggested content warnings saved yet." />
+              <ChipSection title="Tropes" items={tropeItems} tone="trope" badge={aiSuggestions.some((item) => item.fieldName === "tropes") ? "AI populated" : undefined} emptyText={enriching ? "AI is filling tropes..." : "No trope profile saved yet. Rerun AI detection to classify this book."} />
+              <ChipSection title="Moods" items={moodItems} tone="mood" badge={aiSuggestions.some((item) => item.fieldName === "moods") ? "AI populated" : undefined} emptyText={enriching ? "AI is filling moods..." : "No mood profile saved yet. Rerun AI detection to classify this book."} />
+              <ChipSection title="Content warnings" items={book.contentWarnings?.length ? book.contentWarnings : suggestionValues(aiSuggestions, "content_warnings", 0.5)} tone="warning" emptyText="No content warning profile saved yet." />
             </div>
           </section>
           <AIDebugPanel debug={aiDebug} suggestions={aiSuggestions} onRerun={rerunAIDetection} loading={enriching} />
@@ -256,7 +256,7 @@ function SeriesInfo({ book, aiSuggestions }: { book: Book; aiSuggestions: BookAI
       {book.seriesName ? (
         <span className="chip">Book {book.seriesPosition ?? "?"} in the {book.seriesName} series</span>
       ) : aiSeries ? (
-        <span className="chip">AI inferred: {aiSeries}</span>
+        <span className="chip">AI profile: {aiSeries}</span>
       ) : (
         <span className="chip">No confirmed series data yet</span>
       )}
