@@ -1,0 +1,4 @@
+project_id = "atxxwtddymjnkkddhzzo"
+
+[functions.enrich-book-ai]
+verify_jwt = false
